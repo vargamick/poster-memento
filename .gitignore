@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Data directories (Docker volumes)
+data/neo4j/
+data/postgres/
+data/minio/
+data/ollama/
+data/embeddings-cache/
+
+# Output files
+output/
+*.log
+comparison-*.json
+discovered-files.json
+
+# Environment files (keep .env.example)
+.env
+.env.local
+.env.*.local
+
+# Instance source images (too large for git)
+instances/*/SourceImages/
+source-images
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+coverage/
+
+# Claude Code settings (local only)
+.claude/
+
+# Backups
+backups/
+
+# TypeScript build info
+*.tsbuildinfo

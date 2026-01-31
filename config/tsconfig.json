@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES2020",
+    "moduleResolution": "Bundler",
+    "outDir": "../dist",
+    "rootDir": "../src",
+    "strict": false,
+    "noImplicitAny": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": false,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "lib": ["ES2020"],
+    "noImplicitReturns": false,
+    "noFallthroughCasesInSwitch": false,
+    "allowUnreachableCode": true,
+    "allowUnusedLabels": true,
+    "noImplicitOverride": false,
+    "sourceMap": true,
+    "declaration": true
+  },
+  "include": ["../src/**/*.ts"],
+  "exclude": [
+    "../node_modules",
+    "../dist",
+    "../src/**/__vitest__/**",
+    "../src/**/*.test.ts",
+    "../src/**/*.spec.ts"
+  ]
+}

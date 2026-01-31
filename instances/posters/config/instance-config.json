@@ -1,0 +1,193 @@
+{
+  "instanceName": "posters",
+  "description": "Music poster knowledge graph extraction using vision models",
+  "useCase": "poster-knowledge-graph",
+  "version": "1.0.0",
+
+  "entityTypes": [
+    {
+      "name": "Poster",
+      "description": "A music or event poster image",
+      "required_fields": ["name", "entityType", "poster_type", "extracted_text"],
+      "optional_fields": [
+        "title", "visual_elements", "event_date", "event_year",
+        "ticket_price", "tour_name", "metadata"
+      ],
+      "metadata_schema": {
+        "source_image_url": "string",
+        "source_image_hash": "string",
+        "original_filename": "string",
+        "file_size_bytes": "number",
+        "vision_model": "string",
+        "processing_time_ms": "number",
+        "processing_date": "string",
+        "confidence_score": "number"
+      }
+    },
+    {
+      "name": "Artist",
+      "description": "A musician, band, or performer",
+      "required_fields": ["name", "entityType"],
+      "optional_fields": ["display_name", "origin_city", "origin_country", "genres", "active_years"]
+    },
+    {
+      "name": "Venue",
+      "description": "A physical event location",
+      "required_fields": ["name", "entityType"],
+      "optional_fields": ["display_name", "city", "state", "country", "venue_type", "capacity", "website"]
+    },
+    {
+      "name": "Event",
+      "description": "A live event or show",
+      "required_fields": ["name", "entityType"],
+      "optional_fields": [
+        "event_name", "event_type", "tour_name", "event_date", "event_date_end",
+        "event_year", "door_time", "show_time", "ticket_price", "ticket_outlets",
+        "age_restriction"
+      ]
+    },
+    {
+      "name": "Release",
+      "description": "A music release (album, single, EP)",
+      "required_fields": ["name", "entityType", "title"],
+      "optional_fields": ["release_type", "release_date", "release_year", "tracks", "bonus_content"]
+    },
+    {
+      "name": "Organization",
+      "description": "A record label, promoter, sponsor, or other organization",
+      "required_fields": ["name", "entityType"],
+      "optional_fields": ["display_name", "org_type", "website"]
+    }
+  ],
+
+  "relationshipTypes": [
+    {
+      "name": "FEATURES_ARTIST",
+      "description": "Poster features this artist",
+      "from_entity_types": ["Poster"],
+      "to_entity_types": ["Artist"],
+      "cardinality": "one-to-many"
+    },
+    {
+      "name": "ADVERTISES_VENUE",
+      "description": "Poster advertises this venue",
+      "from_entity_types": ["Poster"],
+      "to_entity_types": ["Venue"],
+      "cardinality": "one-to-many"
+    },
+    {
+      "name": "ADVERTISES_EVENT",
+      "description": "Poster advertises this event",
+      "from_entity_types": ["Poster"],
+      "to_entity_types": ["Event"],
+      "cardinality": "one-to-many"
+    },
+    {
+      "name": "ADVERTISES_RELEASE",
+      "description": "Poster advertises this release",
+      "from_entity_types": ["Poster"],
+      "to_entity_types": ["Release"],
+      "cardinality": "one-to-many"
+    },
+    {
+      "name": "HEADLINED",
+      "description": "Artist headlined this event",
+      "from_entity_types": ["Artist"],
+      "to_entity_types": ["Event"],
+      "cardinality": "many-to-many"
+    },
+    {
+      "name": "PERFORMED_AT",
+      "description": "Artist performed at this event (supporting act)",
+      "from_entity_types": ["Artist"],
+      "to_entity_types": ["Event"],
+      "cardinality": "many-to-many"
+    },
+    {
+      "name": "HELD_AT",
+      "description": "Event was held at this venue",
+      "from_entity_types": ["Event"],
+      "to_entity_types": ["Venue"],
+      "cardinality": "many-to-one"
+    },
+    {
+      "name": "PROMOTED_BY",
+      "description": "Event was promoted by this organization",
+      "from_entity_types": ["Event"],
+      "to_entity_types": ["Organization"],
+      "cardinality": "many-to-many"
+    },
+    {
+      "name": "RELEASED_BY",
+      "description": "Release was released by this organization (label)",
+      "from_entity_types": ["Release"],
+      "to_entity_types": ["Organization"],
+      "cardinality": "many-to-one"
+    },
+    {
+      "name": "CREATED_BY",
+      "description": "Release was created by this artist",
+      "from_entity_types": ["Release"],
+      "to_entity_types": ["Artist"],
+      "cardinality": "many-to-many"
+    }
+  ],
+
+  "processingConfig": {
+    "providerType": "vision",
+    "providerSettings": {
+      "vision": {
+        "model": "minicpm-v",
+        "provider": "ollama",
+        "baseUrl": "http://localhost:11434",
+        "confidenceThreshold": 0.7,
+        "options": {
+          "temperature": 0.1,
+          "maxTokens": 2048
+        }
+      }
+    },
+    "batchSize": 5,
+    "maxConcurrent": 2,
+    "retryAttempts": 3,
+    "retryDelay": 2000,
+    "memoryManagement": true,
+    "enableLogging": true,
+    "logLevel": "info"
+  },
+
+  "searchConfig": {
+    "defaultStrategy": "hybrid",
+    "hybridWeights": {
+      "graph": 0.4,
+      "vector": 0.6
+    },
+    "vectorThreshold": 0.7,
+    "enableMetadataFiltering": true,
+    "mergeMethod": "weighted"
+  },
+
+  "dataSourceConfig": {
+    "type": "local",
+    "local": {
+      "directory": "./SourceImages",
+      "filePattern": "*.{jpg,jpeg,png,JPG,JPEG,PNG}",
+      "recursive": false
+    }
+  },
+
+  "storageConfig": {
+    "objectStorage": {
+      "type": "minio",
+      "bucket": "poster-images",
+      "prefix": "originals/",
+      "endpoint": "http://localhost:9000"
+    }
+  },
+
+  "metadata": {
+    "created": "2026-01-31",
+    "maintainer": "GregRako",
+    "source": "PastedandWasted poster collection"
+  }
+}

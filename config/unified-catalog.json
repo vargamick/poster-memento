@@ -1,0 +1,294 @@
+{
+  "version": "1.0.0",
+  "name": "Music Poster Knowledge Store",
+  "description": "Entity catalog for music poster metadata extraction and organization",
+  "entityTypes": {
+    "poster": {
+      "idPrefix": "poster_",
+      "graphEntityType": "poster",
+      "description": "A music concert or event poster",
+      "requiredFields": ["name", "source_file"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Unique identifier for the poster entity"
+        },
+        "title": {
+          "type": "string",
+          "description": "Event or concert title as shown on the poster"
+        },
+        "source_file": {
+          "type": "string",
+          "required": true,
+          "description": "Original source file path or S3 URL"
+        },
+        "headliner": {
+          "type": "string",
+          "description": "Primary/main artist or band name"
+        },
+        "supporting_acts": {
+          "type": "array",
+          "items": "string",
+          "description": "List of supporting artists/bands"
+        },
+        "venue_name": {
+          "type": "string",
+          "description": "Name of the venue or location"
+        },
+        "city": {
+          "type": "string",
+          "description": "City where the event takes place"
+        },
+        "state": {
+          "type": "string",
+          "description": "State or region where the event takes place"
+        },
+        "country": {
+          "type": "string",
+          "description": "Country where the event takes place"
+        },
+        "event_date": {
+          "type": "string",
+          "description": "Date of the event (formatted string)"
+        },
+        "year": {
+          "type": "number",
+          "description": "Year of the event"
+        },
+        "decade": {
+          "type": "string",
+          "description": "Decade of the event (e.g., '1960s', '1970s')"
+        },
+        "ticket_price": {
+          "type": "string",
+          "description": "Ticket price as shown on poster"
+        },
+        "extracted_text": {
+          "type": "string",
+          "description": "Full OCR text extracted from the poster"
+        },
+        "poster_style": {
+          "type": "string",
+          "description": "Visual style of the poster (e.g., 'psychedelic', 'minimalist')"
+        },
+        "description": {
+          "type": "string",
+          "description": "General description of the poster"
+        }
+      },
+      "metadataSchema": {
+        "source_image_url": {
+          "type": "string",
+          "description": "S3 URL or file path to the original image"
+        },
+        "source_image_hash": {
+          "type": "string",
+          "description": "SHA256 hash of the source image (first 16 chars)"
+        },
+        "original_filename": {
+          "type": "string",
+          "description": "Original filename of the source image"
+        },
+        "file_size_bytes": {
+          "type": "number",
+          "description": "Size of the source file in bytes"
+        },
+        "image_dimensions": {
+          "type": "string",
+          "description": "Image dimensions (e.g., '1200x1800')"
+        },
+        "vision_model": {
+          "type": "string",
+          "description": "Vision model used for extraction"
+        },
+        "processing_time_ms": {
+          "type": "number",
+          "description": "Time taken to process the image in milliseconds"
+        },
+        "extraction_confidence": {
+          "type": "number",
+          "description": "Confidence score of the extraction (0-1)"
+        },
+        "processing_date": {
+          "type": "string",
+          "description": "ISO timestamp when the poster was processed"
+        }
+      }
+    },
+    "artist": {
+      "idPrefix": "artist_",
+      "graphEntityType": "artist",
+      "description": "A musical artist or band",
+      "requiredFields": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Artist or band name"
+        },
+        "aliases": {
+          "type": "array",
+          "items": "string",
+          "description": "Alternative names or spellings"
+        },
+        "primary_genre": {
+          "type": "string",
+          "description": "Primary musical genre"
+        },
+        "active_years": {
+          "type": "string",
+          "description": "Years the artist was/is active"
+        }
+      }
+    },
+    "venue": {
+      "idPrefix": "venue_",
+      "graphEntityType": "venue",
+      "description": "A music venue or event location",
+      "requiredFields": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Venue name"
+        },
+        "city": {
+          "type": "string",
+          "description": "City where the venue is located"
+        },
+        "state": {
+          "type": "string",
+          "description": "State or region"
+        },
+        "country": {
+          "type": "string",
+          "description": "Country"
+        },
+        "venue_type": {
+          "type": "string",
+          "description": "Type of venue (e.g., 'arena', 'club', 'theater', 'outdoor')"
+        },
+        "capacity": {
+          "type": "number",
+          "description": "Venue capacity"
+        }
+      }
+    },
+    "genre": {
+      "idPrefix": "genre_",
+      "graphEntityType": "genre",
+      "description": "A musical genre category",
+      "requiredFields": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Genre name"
+        },
+        "parent_genre": {
+          "type": "string",
+          "description": "Parent genre category"
+        },
+        "era": {
+          "type": "string",
+          "description": "Era when the genre was popular"
+        }
+      }
+    },
+    "era": {
+      "idPrefix": "era_",
+      "graphEntityType": "era",
+      "description": "A time period or decade",
+      "requiredFields": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Era name (e.g., '1960s', 'Summer of Love')"
+        },
+        "decade": {
+          "type": "string",
+          "description": "Decade (e.g., '1960s')"
+        },
+        "characteristic_styles": {
+          "type": "array",
+          "items": "string",
+          "description": "Characteristic visual or musical styles"
+        }
+      }
+    }
+  },
+  "relationshipTypes": {
+    "features_artist": {
+      "fromEntityType": "poster",
+      "toEntityType": "artist",
+      "description": "Poster features this artist",
+      "properties": {
+        "role": {
+          "type": "string",
+          "description": "Role of the artist (headliner, support, special guest)"
+        },
+        "billing_order": {
+          "type": "number",
+          "description": "Order in billing (1 = headliner)"
+        }
+      }
+    },
+    "at_venue": {
+      "fromEntityType": "poster",
+      "toEntityType": "venue",
+      "description": "Event was held at this venue"
+    },
+    "belongs_to_genre": {
+      "fromEntityType": ["poster", "artist"],
+      "toEntityType": "genre",
+      "description": "Associated with this musical genre"
+    },
+    "from_era": {
+      "fromEntityType": "poster",
+      "toEntityType": "era",
+      "description": "Poster is from this time period"
+    },
+    "performed_at": {
+      "fromEntityType": "artist",
+      "toEntityType": "venue",
+      "description": "Artist performed at this venue",
+      "properties": {
+        "date": {
+          "type": "string",
+          "description": "Date of performance"
+        }
+      }
+    },
+    "similar_to": {
+      "fromEntityType": "poster",
+      "toEntityType": "poster",
+      "description": "Poster is visually or contextually similar",
+      "properties": {
+        "similarity_score": {
+          "type": "number",
+          "description": "Similarity score (0-1)"
+        }
+      }
+    }
+  },
+  "extractionRules": {
+    "poster": {
+      "patterns": {
+        "year": {
+          "regex": "\\b(19[6-9]\\d|20[0-2]\\d)\\b",
+          "description": "Extract 4-digit year"
+        },
+        "date": {
+          "regex": "(\\w+\\s+\\d{1,2},?\\s*\\d{4}|\\d{1,2}\\/\\d{1,2}\\/\\d{2,4})",
+          "description": "Extract date patterns"
+        },
+        "price": {
+          "regex": "\\$[\\d.]+|\\d+\\s*(?:dollars?|admission)",
+          "description": "Extract ticket price"
+        }
+      }
+    }
+  }
+}

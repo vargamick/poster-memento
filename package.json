@@ -1,0 +1,63 @@
+{
+  "name": "poster-memento",
+  "version": "1.0.0",
+  "description": "Music Poster Knowledge Store - Extract and organize music poster metadata using local vision models",
+  "license": "MIT",
+  "author": "Music Poster Archive",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "poster-memento": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "start:http": "node dist/servers/http-server.js",
+    "dev:http": "tsx src/servers/http-server.ts",
+    "neo4j:init": "tsx src/cli/neo4j-setup.ts init",
+    "neo4j:test": "tsx src/cli/neo4j-setup.ts test",
+    "process:posters": "tsx scripts/poster-processing/process-posters.ts",
+    "process:discover": "tsx scripts/poster-processing/discover-files.ts",
+    "vision:models": "tsx scripts/poster-processing/vision-cli.ts models",
+    "vision:use": "tsx scripts/poster-processing/vision-cli.ts use",
+    "vision:compare": "tsx scripts/poster-processing/vision-cli.ts compare",
+    "vision:test": "tsx scripts/poster-processing/vision-cli.ts test",
+    "docker:up": "cd docker && docker compose up -d",
+    "docker:down": "cd docker && docker compose down",
+    "docker:logs": "cd docker && docker compose logs -f",
+    "docker:clean": "cd docker && docker compose down -v",
+    "ollama:pull": "docker exec poster-ollama ollama pull minicpm-v"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.937.0",
+    "@aws-sdk/lib-storage": "^3.937.0",
+    "@modelcontextprotocol/sdk": "1.11.0",
+    "@types/pg": "^8.15.6",
+    "axios": "^1.8.4",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.19.2",
+    "lru-cache": "^11.1.0",
+    "minio": "^8.0.5",
+    "neo4j-driver": "^5.28.1",
+    "openai": "^4.90.0",
+    "pdf-parse": "^2.2.16",
+    "pg": "^8.16.3",
+    "sharp": "^0.33.5",
+    "ts-node": "^10.9.2",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.25",
+    "@types/node": "^22.19.0",
+    "@types/uuid": "^10.0.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
