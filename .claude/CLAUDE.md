@@ -105,7 +105,11 @@ In Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_c
       "env": {
         "CONFIG_PATH": "/Users/mick/AI/GregRako/PastedandWasted/poster-memento/instances/posters/config/instance-config.json",
         "NEO4J_URI": "bolt://localhost:7693",
-        "NEO4J_PASSWORD": "posters_password"
+        "NEO4J_PASSWORD": "posters_password",
+        "EMBEDDING_PROVIDER": "voyage",
+        "VOYAGE_API_KEY": "your-voyage-api-key",
+        "VOYAGE_EMBEDDING_MODEL": "voyage-3",
+        "EMBEDDING_DIMENSIONS": "1024"
       }
     }
   }

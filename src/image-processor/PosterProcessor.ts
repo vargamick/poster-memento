@@ -7,6 +7,7 @@ import { ImageStorageService, createImageStorageFromEnv } from './ImageStorageSe
 import { VisionModelProvider, PosterEntity, VisionExtractionResult } from './types.js';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 
 export interface ProcessingResult {
   success: boolean;
@@ -168,7 +169,8 @@ export class PosterProcessor {
 
     return {
       name: `poster_${hash}`,
-      entityType: 'poster',
+      entityType: 'Poster',
+      poster_type: structured.poster_type || 'unknown',
       title: structured.title,
       headliner: structured.headliner,
       supporting_acts: structured.supporting_acts,
@@ -179,9 +181,17 @@ export class PosterProcessor {
       year,
       decade,
       ticket_price: structured.ticket_price,
+      door_time: structured.door_time,
+      show_time: structured.show_time,
+      age_restriction: structured.age_restriction,
+      tour_name: structured.tour_name,
+      record_label: structured.record_label,
+      promoter: structured.promoter,
       extracted_text: extraction.extracted_text,
+      visual_elements: structured.visual_elements,
       observations: [
         `Extracted from image: ${path.basename(imagePath)}`,
+        `Poster type: ${structured.poster_type || 'unknown'}`,
         extraction.extracted_text.substring(0, 500) + (extraction.extracted_text.length > 500 ? '...' : '')
       ],
       metadata: {
@@ -198,7 +208,6 @@ export class PosterProcessor {
   }
 
   private generateHash(filePath: string): string {
-    const crypto = require('crypto');
     const fileBuffer = fs.readFileSync(filePath);
     return crypto.createHash('sha256').update(fileBuffer).digest('hex').slice(0, 16);
   }

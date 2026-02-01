@@ -16,3 +16,13 @@ export { handleAdvancedSearch } from './advancedSearch.js';
 export { getGraphStatistics } from './getGraphStatistics.js';
 export { getNodeAnalytics, type GetNodeAnalyticsArgs } from './getNodeAnalytics.js';
 export { findPaths } from './findPaths.js';
+
+// Poster processing tools
+export { handleScanPosters, type ScanPostersArgs, type ScanPostersResult } from './scanPosters.js';
+export { handleProcessPosterBatch, type ProcessPosterBatchArgs, type ProcessPosterBatchResult, getProcessingStats, resetProcessingState } from './processPosterBatch.js';
+export { handleGetProcessingStatus, type GetProcessingStatusArgs, type ProcessingStatusResult } from './getProcessingStatus.js';
+
+// Database management tools (pipeline)
+export { handleBackupDatabase, handleGetDatabaseStats, type BackupDatabaseArgs, type BackupDatabaseResult } from './backupDatabase.js';
+export { handleResetDatabase, type ResetDatabaseArgs, type ResetDatabaseResult } from './resetDatabase.js';
+export { handleReprocessPosters, type ReprocessPostersArgs, type ReprocessPostersResult } from './reprocessPosters.js';

@@ -817,6 +817,120 @@ export async function handleCallToolRequest(
           };
         }
 
+      // ============================================
+      // Poster Processing Tools
+      // ============================================
+
+      case 'scan_posters':
+        try {
+          const scanResult = await toolHandlers.handleScanPosters(
+            args as unknown as toolHandlers.ScanPostersArgs
+          );
+          return {
+            content: [{ type: 'text', text: JSON.stringify(scanResult, null, 2) }],
+          };
+        } catch (error: Error | unknown) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: 'text', text: `Error scanning posters: ${errorMessage}` }],
+          };
+        }
+
+      case 'process_poster_batch':
+        try {
+          const batchResult = await toolHandlers.handleProcessPosterBatch(
+            args as unknown as toolHandlers.ProcessPosterBatchArgs,
+            knowledgeGraphManager
+          );
+          return {
+            content: [{ type: 'text', text: JSON.stringify(batchResult, null, 2) }],
+          };
+        } catch (error: Error | unknown) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: 'text', text: `Error processing poster batch: ${errorMessage}` }],
+          };
+        }
+
+      case 'get_processing_status':
+        try {
+          const statusResult = await toolHandlers.handleGetProcessingStatus(
+            args as unknown as toolHandlers.GetProcessingStatusArgs,
+            knowledgeGraphManager
+          );
+          return {
+            content: [{ type: 'text', text: JSON.stringify(statusResult, null, 2) }],
+          };
+        } catch (error: Error | unknown) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: 'text', text: `Error getting processing status: ${errorMessage}` }],
+          };
+        }
+
+      // ============================================
+      // Database Management / Pipeline Tools
+      // ============================================
+
+      case 'backup_database':
+        try {
+          const backupResult = await toolHandlers.handleBackupDatabase(
+            args as unknown as toolHandlers.BackupDatabaseArgs
+          );
+          return {
+            content: [{ type: 'text', text: JSON.stringify(backupResult, null, 2) }],
+          };
+        } catch (error: Error | unknown) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: 'text', text: `Error backing up database: ${errorMessage}` }],
+          };
+        }
+
+      case 'get_database_stats':
+        try {
+          const statsResult = await toolHandlers.handleGetDatabaseStats();
+          return {
+            content: [{ type: 'text', text: JSON.stringify(statsResult, null, 2) }],
+          };
+        } catch (error: Error | unknown) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: 'text', text: `Error getting database stats: ${errorMessage}` }],
+          };
+        }
+
+      case 'reset_database':
+        try {
+          const resetResult = await toolHandlers.handleResetDatabase(
+            args as unknown as toolHandlers.ResetDatabaseArgs
+          );
+          return {
+            content: [{ type: 'text', text: JSON.stringify(resetResult, null, 2) }],
+          };
+        } catch (error: Error | unknown) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: 'text', text: `Error resetting database: ${errorMessage}` }],
+          };
+        }
+
+      case 'reprocess_posters':
+        try {
+          const reprocessResult = await toolHandlers.handleReprocessPosters(
+            args as unknown as toolHandlers.ReprocessPostersArgs,
+            knowledgeGraphManager
+          );
+          return {
+            content: [{ type: 'text', text: JSON.stringify(reprocessResult, null, 2) }],
+          };
+        } catch (error: Error | unknown) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: 'text', text: `Error reprocessing posters: ${errorMessage}` }],
+          };
+        }
+
       default:
         throw new Error(`Unknown tool: ${name}`);
     }

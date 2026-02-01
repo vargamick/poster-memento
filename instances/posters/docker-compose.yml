@@ -5,7 +5,7 @@ services:
   # Neo4j Graph Database
   # Uses different ports to avoid conflict with Memento-new (7474/7687)
   neo4j:
-    image: neo4j:5.13.0
+    image: neo4j:5.15.0
     container_name: posters-neo4j
     ports:
       - "7480:7474"   # HTTP (different from Memento-new's 7474)

@@ -25,35 +25,82 @@ export class OllamaVisionProvider implements VisionModelProvider {
     const imageBuffer = fs.readFileSync(imagePath);
     const base64Image = imageBuffer.toString('base64');
 
-    const defaultPrompt = `Analyze this concert/music poster image carefully.
+    const defaultPrompt = `Analyze this music/event poster image carefully.
 
-STEP 1: Extract ALL visible text from the image exactly as shown.
+STEP 1: Determine the POSTER TYPE - what is the primary purpose of this poster?
+- event: Advertises a concert, show, festival, or live performance
+- release: Promotes an album, single, EP, or music release
+- promo: General promotional/advertising poster (endorsements, competitions)
+- exhibition: Art exhibition, gallery show, or museum display
+- hybrid: Combines event AND release promotion
+- unknown: Cannot determine the type
 
-STEP 2: Identify and structure the following information:
-- Event title or concert name
-- HEADLINER: The main/primary artist or band (usually largest text)
-- SUPPORTING ACTS: Other artists listed (usually smaller text, often says "with" or "and")
-- Venue name (the location/building where the event takes place)
-- City and state/country
-- Date (day, month, year if visible)
-- Ticket price if shown
-- Any other relevant details
+STEP 2: Extract ALL visible text from the image exactly as shown.
 
-STEP 3: Return your findings in this format:
+STEP 3: Identify and structure the following based on poster type:
+
+FOR EVENT POSTERS:
+- Event name/title
+- HEADLINER: Main artist (usually largest text)
+- SUPPORTING ACTS: Other artists (usually smaller, often "with" or "and")
+- Venue name
+- City, State/Country
+- Date (day, month, year)
+- Door time, Show time
+- Ticket price
+- Age restriction if shown
+- Promoter/Presenter
+
+FOR RELEASE POSTERS:
+- Release title (album/single name)
+- Artist name
+- Release date
+- Record label
+- Track listing if shown
+
+FOR PROMO POSTERS:
+- Product/Brand name
+- Promotion type
+- Call to action
+- Contact info
+
+STEP 4: Describe VISUAL ELEMENTS:
+- Has artist photo? (yes/no)
+- Has album artwork? (yes/no)
+- Has logos? (yes/no)
+- Dominant colors (list 2-3)
+- Visual style: photographic, illustrated, typographic, mixed, other
+
+STEP 5: Return findings in this format:
+
+POSTER TYPE: [event|release|promo|exhibition|hybrid|unknown]
 
 EXTRACTED TEXT:
 [All text from the poster]
 
 STRUCTURED DATA:
-Title: [event title]
+Title: [event/release title]
 Headliner: [main artist]
-Supporting Acts: [list other artists, comma separated]
+Supporting Acts: [comma separated list]
 Venue: [venue name]
-City: [city name]
-State: [state or country]
+City: [city]
+State: [state/country]
 Date: [formatted date]
 Year: [year as number]
-Ticket Price: [price if shown]
+Ticket Price: [price]
+Door Time: [time]
+Show Time: [time]
+Age Restriction: [if shown]
+Tour Name: [if shown]
+Record Label: [if shown]
+Promoter: [if shown]
+
+VISUAL ELEMENTS:
+Has Artist Photo: [yes/no]
+Has Album Artwork: [yes/no]
+Has Logo: [yes/no]
+Dominant Colors: [comma separated]
+Style: [photographic|illustrated|typographic|mixed|other]
 
 Be accurate and only include information you can clearly see in the image.`;
 
@@ -98,6 +145,12 @@ Be accurate and only include information you can clearly see in the image.`;
   private parseStructuredResponse(text: string): VisionExtractionResult['structured_data'] {
     const result: VisionExtractionResult['structured_data'] = {};
 
+    // Parse poster type first
+    const posterTypeMatch = text.match(/POSTER TYPE:\s*(event|release|promo|exhibition|hybrid|unknown)/i);
+    if (posterTypeMatch) {
+      result.poster_type = posterTypeMatch[1].toLowerCase() as 'event' | 'release' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
+    }
+
     // Parse structured data section
     const patterns: Record<string, RegExp> = {
       title: /Title:\s*(.+?)(?:\n|$)/i,
@@ -108,7 +161,13 @@ Be accurate and only include information you can clearly see in the image.`;
       state: /State:\s*(.+?)(?:\n|$)/i,
       date: /Date:\s*(.+?)(?:\n|$)/i,
       year: /Year:\s*(\d{4})(?:\n|$)/i,
-      ticket_price: /Ticket Price:\s*(.+?)(?:\n|$)/i
+      ticket_price: /Ticket Price:\s*(.+?)(?:\n|$)/i,
+      door_time: /Door Time:\s*(.+?)(?:\n|$)/i,
+      show_time: /Show Time:\s*(.+?)(?:\n|$)/i,
+      age_restriction: /Age Restriction:\s*(.+?)(?:\n|$)/i,
+      tour_name: /Tour Name:\s*(.+?)(?:\n|$)/i,
+      record_label: /Record Label:\s*(.+?)(?:\n|$)/i,
+      promoter: /Promoter:\s*(.+?)(?:\n|$)/i
     };
 
     for (const [key, pattern] of Object.entries(patterns)) {
@@ -125,6 +184,34 @@ Be accurate and only include information you can clearly see in the image.`;
           (result as any)[key] = value;
         }
       }
+    }
+
+    // Parse visual elements
+    const visualElements: Record<string, any> = {};
+    const visualPatterns: Record<string, RegExp> = {
+      has_artist_photo: /Has Artist Photo:\s*(yes|no)/i,
+      has_album_artwork: /Has Album Artwork:\s*(yes|no)/i,
+      has_logo: /Has Logo:\s*(yes|no)/i,
+      dominant_colors: /Dominant Colors:\s*(.+?)(?:\n|$)/i,
+      style: /Style:\s*(photographic|illustrated|typographic|mixed|other)/i
+    };
+
+    for (const [key, pattern] of Object.entries(visualPatterns)) {
+      const match = text.match(pattern);
+      if (match && match[1]) {
+        const value = match[1].trim();
+        if (key.startsWith('has_')) {
+          visualElements[key] = value.toLowerCase() === 'yes';
+        } else if (key === 'dominant_colors') {
+          visualElements[key] = value.split(/,\s*/).filter(c => c.length > 0);
+        } else {
+          visualElements[key] = value.toLowerCase();
+        }
+      }
+    }
+
+    if (Object.keys(visualElements).length > 0) {
+      result.visual_elements = visualElements;
     }
 
     // Also try to extract artists array combining headliner and supporting acts

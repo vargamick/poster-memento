@@ -39,8 +39,9 @@ Thumbs.db
 # Test files
 coverage/
 
-# Claude Code settings (local only)
-.claude/
+# Claude Code settings (local only, except CLAUDE.md project docs)
+.claude/*
+!.claude/CLAUDE.md
 
 # Backups
 backups/

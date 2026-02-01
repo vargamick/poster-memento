@@ -1,0 +1,273 @@
+
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pastedandwasted.com/schemas/poster-schema.json",
+  "title": "Poster Knowledge Graph Schema",
+  "description": "Schema for extracting and structuring poster data into a knowledge graph",
+  "version": "1.0.0",
+
+  "definitions": {
+    "Artist": {
+      "type": "object",
+      "description": "A musical artist, band, or performer",
+      "required": ["entityType", "name"],
+      "properties": {
+        "entityType": { "const": "Artist" },
+        "id": { "type": "string", "description": "Unique identifier" },
+        "name": { "type": "string", "description": "Artist or band name" },
+        "origin_city": { "type": "string" },
+        "origin_country": { "type": "string" },
+        "genres": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "active_years": {
+          "type": "object",
+          "properties": {
+            "start": { "type": "integer" },
+            "end": { "type": ["integer", "null"] }
+          }
+        }
+      }
+    },
+
+    "Venue": {
+      "type": "object",
+      "description": "A physical location where events take place",
+      "required": ["entityType", "name"],
+      "properties": {
+        "entityType": { "const": "Venue" },
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "city": { "type": "string" },
+        "state": { "type": "string" },
+        "country": { "type": "string" },
+        "venue_type": {
+          "type": "string",
+          "enum": ["arena", "stadium", "club", "theatre", "bar", "outdoor", "gallery", "convention_center", "other"]
+        },
+        "capacity": { "type": "integer" },
+        "website": { "type": "string", "format": "uri" }
+      }
+    },
+
+    "Organization": {
+      "type": "object",
+      "description": "Companies, labels, promoters, or sponsors",
+      "required": ["entityType", "name", "org_type"],
+      "properties": {
+        "entityType": { "const": "Organization" },
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "org_type": {
+          "type": "string",
+          "enum": ["record_label", "promoter", "sponsor", "media", "ticketing", "distributor", "production", "other"]
+        },
+        "website": { "type": "string", "format": "uri" }
+      }
+    },
+
+    "Release": {
+      "type": "object",
+      "description": "A music release (album, single, EP, etc.)",
+      "required": ["entityType", "title", "release_type"],
+      "properties": {
+        "entityType": { "const": "Release" },
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "release_type": {
+          "type": "string",
+          "enum": ["album", "single", "EP", "compilation", "live_album", "DVD", "box_set", "other"]
+        },
+        "artist_id": { "type": "string", "description": "Reference to Artist" },
+        "label_id": { "type": "string", "description": "Reference to Organization" },
+        "release_date": { "type": "string", "format": "date" },
+        "release_year": { "type": "integer" },
+        "tracks": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "bonus_content": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "Event": {
+      "type": "object",
+      "description": "A live event (concert, festival, exhibition)",
+      "required": ["entityType", "event_type"],
+      "properties": {
+        "entityType": { "const": "Event" },
+        "id": { "type": "string" },
+        "event_name": { "type": "string" },
+        "event_type": {
+          "type": "string",
+          "enum": ["concert", "festival", "tour", "exhibition", "club_night", "charity", "other"]
+        },
+        "tour_name": { "type": "string" },
+        "headliner_id": { "type": "string", "description": "Reference to Artist" },
+        "supporting_act_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "References to Artists"
+        },
+        "venue_id": { "type": "string", "description": "Reference to Venue" },
+        "event_date": { "type": "string", "format": "date" },
+        "event_date_end": { "type": "string", "format": "date", "description": "For multi-day events" },
+        "event_year": { "type": "integer" },
+        "door_time": { "type": "string" },
+        "show_time": { "type": "string" },
+        "ticket_price": { "type": "string" },
+        "ticket_outlets": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "promoter_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "References to Organizations"
+        },
+        "sponsor_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "References to Organizations"
+        },
+        "age_restriction": { "type": "string" }
+      }
+    },
+
+    "ProcessingMetadata": {
+      "type": "object",
+      "properties": {
+        "source_image_url": { "type": "string" },
+        "source_image_hash": { "type": "string" },
+        "original_filename": { "type": "string" },
+        "file_size_bytes": { "type": "integer" },
+        "vision_model": { "type": "string" },
+        "processing_time_ms": { "type": "integer" },
+        "processing_date": { "type": "string", "format": "date-time" },
+        "confidence_score": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  },
+
+  "type": "object",
+  "required": ["entityType", "poster_type", "metadata"],
+  "properties": {
+    "entityType": { "const": "Poster" },
+    "id": { "type": "string", "description": "Unique poster identifier" },
+
+    "poster_type": {
+      "type": "string",
+      "enum": ["event", "release", "promo", "exhibition", "hybrid", "unknown"],
+      "description": "Primary classification of the poster"
+    },
+
+    "extracted_text": {
+      "type": "string",
+      "description": "Raw OCR text extracted from the poster"
+    },
+
+    "primary_artist": {
+      "$ref": "#/definitions/Artist",
+      "description": "Inline artist entity or reference"
+    },
+    "primary_artist_id": {
+      "type": "string",
+      "description": "Reference to existing Artist entity"
+    },
+
+    "event": {
+      "$ref": "#/definitions/Event",
+      "description": "Event details if poster_type is 'event' or 'hybrid'"
+    },
+
+    "release": {
+      "$ref": "#/definitions/Release",
+      "description": "Release details if poster_type is 'release' or 'hybrid'"
+    },
+
+    "venue": {
+      "$ref": "#/definitions/Venue",
+      "description": "Venue entity (for event posters)"
+    },
+
+    "organizations": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Organization" },
+      "description": "Labels, promoters, sponsors mentioned on poster"
+    },
+
+    "promo_details": {
+      "type": "object",
+      "description": "For promotional/advertising posters",
+      "properties": {
+        "product_name": { "type": "string" },
+        "brand": { "type": "string" },
+        "promotion_type": {
+          "type": "string",
+          "enum": ["competition", "giveaway", "discount", "launch", "sponsorship", "other"]
+        },
+        "call_to_action": { "type": "string" },
+        "contact_info": { "type": "string" }
+      }
+    },
+
+    "visual_elements": {
+      "type": "object",
+      "description": "Notable visual characteristics",
+      "properties": {
+        "has_artist_photo": { "type": "boolean" },
+        "has_album_artwork": { "type": "boolean" },
+        "has_logo": { "type": "boolean" },
+        "dominant_colors": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "style": {
+          "type": "string",
+          "enum": ["photographic", "illustrated", "typographic", "mixed", "other"]
+        }
+      }
+    },
+
+    "observations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Additional notes and observations about the poster"
+    },
+
+    "metadata": {
+      "$ref": "#/definitions/ProcessingMetadata"
+    }
+  },
+
+  "allOf": [
+    {
+      "if": {
+        "properties": { "poster_type": { "const": "event" } }
+      },
+      "then": {
+        "required": ["event"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "poster_type": { "const": "release" } }
+      },
+      "then": {
+        "required": ["release"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "poster_type": { "const": "hybrid" } }
+      },
+      "then": {
+        "required": ["event", "release"]
+      }
+    }
+  ]
+}

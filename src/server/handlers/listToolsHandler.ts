@@ -833,6 +833,186 @@ export async function handleListToolsRequest(): Promise<{ tools: Array<Record<st
     },
   ];
 
+  // Define the poster processing tools
+  const posterProcessingTools = [
+    {
+      name: 'scan_posters',
+      description:
+        'Scan a source directory for poster images and return file information. Use this to discover how many images are available for processing.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sourcePath: {
+            type: 'string',
+            description:
+              'Path to the source directory containing poster images. Defaults to SOURCE_IMAGES_PATH environment variable.',
+          },
+          extensions: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'File extensions to include (default: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".tiff", ".tif"])',
+          },
+          recursive: {
+            type: 'boolean',
+            description: 'Whether to search subdirectories recursively (default: true)',
+          },
+          offset: {
+            type: 'number',
+            description: 'Number of files to skip for pagination (default: 0)',
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of files to return (default: 100)',
+          },
+        },
+      },
+    },
+    {
+      name: 'process_poster_batch',
+      description:
+        'Process a batch of poster images using vision AI to extract metadata and store in the knowledge graph. Use offset and batchSize to process images in batches. Returns progress info including hasMore flag to continue processing.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sourcePath: {
+            type: 'string',
+            description:
+              'Path to source directory. Defaults to SOURCE_IMAGES_PATH environment variable.',
+          },
+          filePaths: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Specific file paths to process. If provided, sourcePath is ignored.',
+          },
+          batchSize: {
+            type: 'number',
+            description: 'Number of images to process in this batch (default: 10, max recommended: 100)',
+          },
+          offset: {
+            type: 'number',
+            description:
+              'Starting position in the source files for pagination. Increment by batchSize for each call.',
+          },
+          skipIfExists: {
+            type: 'boolean',
+            description: 'Skip images that have already been processed by hash (default: true)',
+          },
+          storeImages: {
+            type: 'boolean',
+            description: 'Whether to store images in object storage (default: true)',
+          },
+          modelKey: {
+            type: 'string',
+            description: 'Vision model to use for extraction (optional, uses default if not specified)',
+          },
+        },
+      },
+    },
+    {
+      name: 'get_processing_status',
+      description:
+        'Get the current status of poster processing operations including progress, counts, and knowledge graph statistics.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sourcePath: {
+            type: 'string',
+            description: 'Source path to check status for. Defaults to SOURCE_IMAGES_PATH.',
+          },
+          includeGraphStats: {
+            type: 'boolean',
+            description:
+              'Include counts of posters, artists, and venues in the knowledge graph (default: true)',
+          },
+          reset: {
+            type: 'boolean',
+            description: 'Reset the processing state to start fresh (default: false)',
+          },
+        },
+      },
+    },
+  ];
+
+  // Define the database management/pipeline tools
+  const pipelineTools = [
+    {
+      name: 'backup_database',
+      description:
+        'Create a backup of the Neo4j and PostgreSQL databases. Returns backup file paths and database statistics. Use this before performing destructive operations like reset_database.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          compress: {
+            type: 'boolean',
+            description: 'Whether to compress the backup files with gzip (default: false)',
+          },
+          backupDirectory: {
+            type: 'string',
+            description: 'Custom directory for backup files. Defaults to ./backups',
+          },
+        },
+      },
+    },
+    {
+      name: 'get_database_stats',
+      description:
+        'Get current statistics for Neo4j and PostgreSQL databases without performing a backup. Returns entity counts, relationship counts, embedding counts, and storage sizes.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    {
+      name: 'reset_database',
+      description:
+        'Reset/truncate the Neo4j and PostgreSQL databases, removing all data while preserving schemas. WARNING: This is a destructive operation! Requires confirmationToken: "CONFIRM_RESET" to proceed.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          confirmationToken: {
+            type: 'string',
+            description:
+              'Must be exactly "CONFIRM_RESET" to proceed. This safety measure prevents accidental data loss.',
+          },
+        },
+        required: ['confirmationToken'],
+      },
+    },
+    {
+      name: 'reprocess_posters',
+      description:
+        'Execute the full poster reprocessing pipeline: (1) Backup database (optional), (2) Reset/truncate database, (3) Reprocess all posters from source directory. WARNING: This is a destructive operation! Requires confirmationToken: "CONFIRM_REPROCESS" to proceed.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          confirmationToken: {
+            type: 'string',
+            description:
+              'Must be exactly "CONFIRM_REPROCESS" to proceed. This safety measure prevents accidental data loss.',
+          },
+          skipBackup: {
+            type: 'boolean',
+            description: 'Skip the backup phase before reset (not recommended, default: false)',
+          },
+          sourcePath: {
+            type: 'string',
+            description: 'Path to source images directory. Defaults to SOURCE_IMAGES_PATH.',
+          },
+          batchSize: {
+            type: 'number',
+            description: 'Number of images to process per batch (default: 5)',
+          },
+          compressBackup: {
+            type: 'boolean',
+            description: 'Whether to compress backup files (default: false)',
+          },
+        },
+        required: ['confirmationToken'],
+      },
+    },
+  ];
+
   // Define the temporal-specific tools
   const temporalTools = [
     {
@@ -958,6 +1138,6 @@ export async function handleListToolsRequest(): Promise<{ tools: Array<Record<st
 
   // Return the list of tools with debug tools conditionally included
   return {
-    tools: [...baseTools, ...temporalTools, ...(process.env.DEBUG === 'true' ? debugTools : [])],
+    tools: [...baseTools, ...posterProcessingTools, ...pipelineTools, ...temporalTools, ...(process.env.DEBUG === 'true' ? debugTools : [])],
   };
 }

@@ -5,6 +5,7 @@
 export interface VisionExtractionResult {
   extracted_text: string;
   structured_data?: {
+    poster_type?: 'event' | 'release' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
     title?: string;
     artists?: string[];
     headliner?: string;
@@ -15,6 +16,19 @@ export interface VisionExtractionResult {
     date?: string;
     year?: number;
     ticket_price?: string;
+    door_time?: string;
+    show_time?: string;
+    age_restriction?: string;
+    tour_name?: string;
+    record_label?: string;
+    promoter?: string;
+    visual_elements?: {
+      has_artist_photo?: boolean;
+      has_album_artwork?: boolean;
+      has_logo?: boolean;
+      dominant_colors?: string[];
+      style?: 'photographic' | 'illustrated' | 'typographic' | 'mixed' | 'other';
+    };
   };
   model: string;
   provider: string;
@@ -59,7 +73,8 @@ export interface StoredImage {
 
 export interface PosterEntity {
   name: string;
-  entityType: 'poster';
+  entityType: 'Poster';
+  poster_type?: 'event' | 'release' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
   title?: string;
   headliner?: string;
   supporting_acts?: string[];
@@ -71,8 +86,20 @@ export interface PosterEntity {
   year?: number;
   decade?: string;
   ticket_price?: string;
+  door_time?: string;
+  show_time?: string;
+  age_restriction?: string;
+  tour_name?: string;
+  record_label?: string;
+  promoter?: string;
   extracted_text?: string;
-  poster_style?: string;
+  visual_elements?: {
+    has_artist_photo?: boolean;
+    has_album_artwork?: boolean;
+    has_logo?: boolean;
+    dominant_colors?: string[];
+    style?: 'photographic' | 'illustrated' | 'typographic' | 'mixed' | 'other';
+  };
   description?: string;
   observations: string[];
   metadata: {
