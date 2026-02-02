@@ -71,11 +71,34 @@
 
   "relationshipTypes": [
     {
-      "name": "FEATURES_ARTIST",
-      "description": "Poster features this artist",
+      "name": "HEADLINED_ON",
+      "description": "Artist was the headliner on this poster/event",
       "from_entity_types": ["Poster"],
       "to_entity_types": ["Artist"],
-      "cardinality": "one-to-many"
+      "cardinality": "one-to-many",
+      "metadata_schema": {
+        "billing_order": "number",
+        "billing_size": "string"
+      }
+    },
+    {
+      "name": "PERFORMED_ON",
+      "description": "Artist performed on this poster/event (non-headliner or festival act)",
+      "from_entity_types": ["Poster"],
+      "to_entity_types": ["Artist"],
+      "cardinality": "one-to-many",
+      "metadata_schema": {
+        "billing_order": "number",
+        "billing_size": "string"
+      }
+    },
+    {
+      "name": "FEATURES_ARTIST",
+      "description": "Poster features this artist (legacy - use HEADLINED_ON or PERFORMED_ON)",
+      "from_entity_types": ["Poster"],
+      "to_entity_types": ["Artist"],
+      "cardinality": "one-to-many",
+      "deprecated": true
     },
     {
       "name": "ADVERTISES_VENUE",

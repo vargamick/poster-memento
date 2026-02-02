@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Poster Memento - Browser</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Poster Memento</h1>
+      <p class="subtitle">Browse and search your poster collection</p>
+      <div class="search-bar">
+        <input type="text" id="search-input" placeholder="Search posters by title, artist, venue...">
+        <select id="search-strategy">
+          <option value="hybrid">Hybrid Search</option>
+          <option value="graph">Graph Search</option>
+          <option value="vector">Semantic Search</option>
+        </select>
+        <button id="search-btn">Search</button>
+        <button id="clear-btn" class="secondary">Clear</button>
+      </div>
+    </header>
+
+    <main>
+      <div class="controls">
+        <div class="left-controls">
+          <select id="limit-select">
+            <option value="10">10 per page</option>
+            <option value="25">25 per page</option>
+            <option value="50">50 per page</option>
+          </select>
+          <span class="total-info">Total: <span id="total-count">0</span> posters</span>
+        </div>
+        <div class="pagination">
+          <button id="prev-btn" disabled>Previous</button>
+          <span id="page-info">Page 1</span>
+          <button id="next-btn">Next</button>
+        </div>
+      </div>
+
+      <div id="loading" class="loading hidden">
+        <div class="spinner"></div>
+        <p>Loading posters...</p>
+      </div>
+
+      <div id="error" class="error hidden">
+        <p id="error-message"></p>
+        <button id="retry-btn">Retry</button>
+      </div>
+
+      <div id="poster-grid" class="poster-grid">
+        <!-- Posters rendered here -->
+      </div>
+
+      <!-- Detail Modal -->
+      <div id="poster-modal" class="modal hidden">
+        <div class="modal-content">
+          <button class="modal-close" id="modal-close">&times;</button>
+          <div id="poster-detail">
+            <!-- Single poster detail view -->
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <p>Poster Memento - Knowledge Graph Powered Poster Management</p>
+    </footer>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

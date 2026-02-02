@@ -265,7 +265,7 @@ const port = parseInt(process.env.PORT || '3000', 10);
 // Middleware
 app.use(
   cors({
-    origin: ['https://claude.ai', 'https://api.anthropic.com'],
+    origin: ['https://claude.ai', 'https://api.anthropic.com', 'http://localhost:3000'],
     credentials: true,
   })
 );
@@ -278,6 +278,11 @@ const __dirname = path.dirname(__filename);
 const publicDir = path.join(__dirname, '../../public');
 app.use('/admin', express.static(path.join(publicDir, 'admin')));
 logger.info('Admin UI enabled at /admin');
+
+// Static file serving for Poster UI
+const posterUiDir = path.join(__dirname, '../../instances/posters/ui');
+app.use('/posters', express.static(posterUiDir));
+logger.info('Poster UI enabled at /posters');
 
 // Health check endpoint - available at both root and memento path
 app.get('/health', (req, res) => {
@@ -315,6 +320,7 @@ app.get('/', (req, res) => {
       'memento-tools': '/memento/tools (GET with API key)',
       'rest-api': '/api/v1/* (REST API endpoints with API key)',
       'api-info': '/api (GET - API information)',
+      'poster-ui': '/posters (Poster browser UI)',
     },
     timestamp: new Date().toISOString(),
   });

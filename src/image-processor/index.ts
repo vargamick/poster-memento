@@ -18,3 +18,7 @@ export type { ImageStorageConfig } from './ImageStorageService.js';
 // Processor
 export { PosterProcessor, createPosterProcessor } from './PosterProcessor.js';
 export type { ProcessingResult, ProcessingOptions } from './PosterProcessor.js';
+
+// Run Management
+export { ProcessingRunManager, createProcessingRunManager } from './ProcessingRunManager.js';
+export type { ProcessedFileRecord, RunMetadata, ProcessingRun } from './ProcessingRunManager.js';

@@ -7,12 +7,15 @@ import * as fs from 'fs';
 import 'dotenv/config';
 import { createPosterProcessor } from '../../src/image-processor/index.js';
 
+// Use relative paths from project root - adjust as needed
+const SOURCE_DIR = './instances/posters/SourceImages';
+
 const TEST_POSTERS = [
-  '/Users/mick/AI/GregRako/PastedandWasted/Posters/SourceImages/concertformax.DONE.JPG',
-  '/Users/mick/AI/GregRako/PastedandWasted/Posters/SourceImages/rollingstones.DONE.JPG',
-  '/Users/mick/AI/GregRako/PastedandWasted/Posters/SourceImages/junglebroslive.DONE.JPG',
-  '/Users/mick/AI/GregRako/PastedandWasted/Posters/SourceImages/12bent.DONE.JPG',
-  '/Users/mick/AI/GregRako/PastedandWasted/Posters/SourceImages/beegeesshow.DONE.JPG',
+  `${SOURCE_DIR}/concertformax.JPG`,
+  `${SOURCE_DIR}/rollingstones.JPG`,
+  `${SOURCE_DIR}/junglebroslive.JPG`,
+  `${SOURCE_DIR}/12bent.JPG`,
+  `${SOURCE_DIR}/beegeesshow.JPG`,
 ];
 
 async function main() {

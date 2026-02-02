@@ -13,6 +13,7 @@ data/embeddings-cache/
 
 # Output files
 output/
+processing-runs/
 *.log
 comparison-*.json
 discovered-files.json
@@ -45,6 +46,7 @@ coverage/
 
 # Backups
 backups/
+instances/*/backup/
 
 # TypeScript build info
 *.tsbuildinfo

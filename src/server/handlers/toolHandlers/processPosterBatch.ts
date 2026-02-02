@@ -219,7 +219,7 @@ export async function handleProcessPosterBatch(
           // Using relationship types from instance-config.json
           const relations: Array<{ from: string; to: string; relationType: string }> = [];
 
-          // Create headliner artist entity and FEATURES_ARTIST relation
+          // Create headliner artist entity and HEADLINED_ON relation
           if (entity.headliner) {
             const headlinerName = `artist_${entity.headliner.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
             try {
@@ -227,8 +227,7 @@ export async function handleProcessPosterBatch(
                 name: headlinerName,
                 entityType: 'Artist',
                 observations: [
-                  `Artist name: ${entity.headliner}`,
-                  'Role: Headliner'
+                  `Artist name: ${entity.headliner}`
                 ]
               }]);
             } catch (e) {
@@ -237,21 +236,21 @@ export async function handleProcessPosterBatch(
             relations.push({
               from: entity.name,
               to: headlinerName,
-              relationType: 'FEATURES_ARTIST'
+              relationType: 'HEADLINED_ON'
             });
           }
 
-          // Create supporting act entities and FEATURES_ARTIST relations
+          // Create performing artist entities and PERFORMED_ON relations
           if (entity.supporting_acts?.length) {
-            for (const act of entity.supporting_acts) {
+            for (let i = 0; i < entity.supporting_acts.length; i++) {
+              const act = entity.supporting_acts[i];
               const actName = `artist_${act.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
               try {
                 await knowledgeGraphManager.createEntities([{
                   name: actName,
                   entityType: 'Artist',
                   observations: [
-                    `Artist name: ${act}`,
-                    'Role: Supporting Act'
+                    `Artist name: ${act}`
                   ]
                 }]);
               } catch (e) {
@@ -260,7 +259,7 @@ export async function handleProcessPosterBatch(
               relations.push({
                 from: entity.name,
                 to: actName,
-                relationType: 'FEATURES_ARTIST'
+                relationType: 'PERFORMED_ON'
               });
             }
           }
