@@ -50,8 +50,29 @@
         <button id="retry-btn">Retry</button>
       </div>
 
-      <div id="poster-grid" class="poster-grid">
-        <!-- Posters rendered here -->
+      <div class="table-container">
+        <table id="poster-table" class="poster-table">
+          <thead>
+            <tr>
+              <th class="th-thumbnail">Image</th>
+              <th class="th-name sortable" data-sort="name">Name <span class="sort-icon"></span></th>
+              <th class="th-type sortable" data-sort="poster_type">Type <span class="sort-icon"></span></th>
+              <th class="th-artists">Artists</th>
+              <th class="th-venue sortable" data-sort="venue_name">Venue <span class="sort-icon"></span></th>
+              <th class="th-date sortable" data-sort="event_date">Date <span class="sort-icon"></span></th>
+              <th class="th-added sortable active desc" data-sort="createdAt">Added <span class="sort-icon"></span></th>
+            </tr>
+          </thead>
+          <tbody id="poster-tbody">
+            <!-- Poster rows rendered here -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Empty State (shown when no posters) -->
+      <div id="empty-state" class="empty-state hidden">
+        <h3>No posters found</h3>
+        <p>Try a different search term or add some posters to get started.</p>
       </div>
 
       <!-- Detail Modal -->
@@ -61,6 +82,16 @@
           <div id="poster-detail">
             <!-- Single poster detail view -->
           </div>
+        </div>
+      </div>
+
+      <!-- Image Lightbox Modal -->
+      <div id="lightbox-modal" class="lightbox hidden">
+        <div class="lightbox-backdrop"></div>
+        <div class="lightbox-content">
+          <button class="lightbox-close" id="lightbox-close">&times;</button>
+          <img id="lightbox-image" src="" alt="">
+          <div id="lightbox-caption" class="lightbox-caption"></div>
         </div>
       </div>
     </main>

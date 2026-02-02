@@ -144,6 +144,30 @@ export class PosterAPI {
     const response = await fetch(`${this.baseUrl}/health`);
     return response.json();
   }
+
+  /**
+   * Get presigned URL for a single image by hash
+   * @param {string} hash - Image hash (first 16 chars of SHA-256)
+   * @param {number} expiry - URL expiry time in seconds (default: 3600)
+   * @returns {Promise<object>} Image URL data
+   */
+  async getImageUrl(hash, expiry = 3600) {
+    const params = new URLSearchParams({ expiry: expiry.toString() });
+    return this.request(`/api/v1/images/${encodeURIComponent(hash)}?${params}`);
+  }
+
+  /**
+   * Get presigned URLs for multiple images by hash (batch)
+   * @param {string[]} hashes - Array of image hashes
+   * @param {number} expiry - URL expiry time in seconds (default: 3600)
+   * @returns {Promise<object>} Batch image URLs data
+   */
+  async getImageUrls(hashes, expiry = 3600) {
+    return this.request('/api/v1/images/batch', {
+      method: 'POST',
+      body: JSON.stringify({ hashes, expiry })
+    });
+  }
 }
 
 /**

@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+
+# Build output (rebuilt in container)
+dist/
+
+# Development files
+*.log
+.env
+.env.*
+!.env.example
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test files
+*.test.ts
+*.spec.ts
+__tests__/
+__vitest__/
+src/**/__vitest__/
+coverage/
+
+# Docker files (prevent recursive context)
+docker/
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Documentation
+*.md
+docs/
+.claude/
+
+# Source images (mounted at runtime)
+source-images/
+instances/posters/SourceImages/
+
+# Processing output (generated at runtime)
+processing-runs/
+instances/posters/processing-runs/
+
+# Other instances (only deploy posters)
+instances/*/
+!instances/posters/
+
+# Misc
+.DS_Store
+Thumbs.db
+*.tmp

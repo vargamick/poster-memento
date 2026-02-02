@@ -88,6 +88,70 @@ services:
     networks:
       - posters-network
 
+  # Poster Memento API Server
+  # Builds from project root and serves API + UI
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: posters-api
+    ports:
+      - "3030:3000"   # External 3030 to avoid conflict with other projects
+    environment:
+      # API Configuration
+      - NODE_ENV=production
+      - API_PORT=3000
+      - API_HOST=0.0.0.0
+      - MEMENTO_API_KEY=posters-api-key-2024
+
+      # Neo4j Connection (internal Docker network)
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=posters_password
+      - MEMORY_STORAGE_TYPE=neo4j
+
+      # PostgreSQL/pgvector Connection
+      - PGHOST=postgres
+      - PGPORT=5432
+      - PGUSER=posters
+      - PGPASSWORD=posters_password
+      - PGDATABASE=posters
+
+      # MinIO Connection (internal Docker network)
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=posters
+      - MINIO_SECRET_KEY=posters_password
+      - MINIO_BUCKET=poster-images
+
+      # Instance Configuration
+      - CONFIG_PATH=/app/config/instance-config.json
+      - UI_STATIC_PATH=/app/ui
+
+      # Embedding Configuration (optional - set your key)
+      # - VOYAGE_API_KEY=your-voyage-api-key
+      # - VOYAGE_EMBEDDING_MODEL=voyage-3
+      # - EMBEDDING_DIMENSIONS=1024
+    volumes:
+      # Mount source images directory for processing
+      - ./SourceImages:/app/source-images:ro
+      # Mount processing runs directory for output
+      - ./processing-runs:/app/processing-runs
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    networks:
+      - posters-network
+
 volumes:
   neo4j_data:
     name: posters-neo4j-data

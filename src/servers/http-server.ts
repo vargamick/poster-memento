@@ -29,6 +29,8 @@ import { expertiseAreaManager } from '../core/domain/ExpertiseArea.js';
 import { errorHandler } from '../api/middleware/errorHandler.js';
 import { requestLogger } from '../api/middleware/requestLogger.js';
 import { createAdminRoutes } from '../api/routes/admin.js';
+import { createImageRoutes } from '../api/routes/images.js';
+import { createImageStorageFromEnv } from '../image-processor/ImageStorageService.js';
 import {
   createAdminServiceFromEnv,
   createS3ServiceFromEnv,
@@ -280,9 +282,13 @@ app.use('/admin', express.static(path.join(publicDir, 'admin')));
 logger.info('Admin UI enabled at /admin');
 
 // Static file serving for Poster UI
-const posterUiDir = path.join(__dirname, '../../instances/posters/ui');
+// Use UI_STATIC_PATH env var (for Docker) or default to relative path (for development)
+const posterUiDir = process.env.UI_STATIC_PATH || path.join(__dirname, '../../instances/posters/ui');
 app.use('/posters', express.static(posterUiDir));
-logger.info('Poster UI enabled at /posters');
+logger.info(`Poster UI enabled at /posters (serving from: ${posterUiDir})`);
+
+// Also serve at root for convenience
+app.use('/', express.static(posterUiDir));
 
 // Health check endpoint - available at both root and memento path
 app.get('/health', (req, res) => {
@@ -438,6 +444,17 @@ apiV1.use('/temporal', createTemporalRoutes(storageProvider));
 
 // Expertise area routes
 apiV1.use('/expertise-areas', createExpertiseRoutes(entityService));
+
+// Image routes (for presigned URLs from MinIO)
+if (process.env.MINIO_ENDPOINT || process.env.IMAGE_STORAGE_ENABLED !== 'false') {
+  try {
+    const imageStorage = createImageStorageFromEnv();
+    apiV1.use('/images', createImageRoutes(imageStorage));
+    logger.info('Image routes enabled at /api/v1/images');
+  } catch (error: any) {
+    logger.warn('Image routes not initialized', { error: error.message });
+  }
+}
 
 // Admin routes (conditionally enabled)
 if (process.env.ADMIN_ENABLED !== 'false') {

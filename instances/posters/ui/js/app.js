@@ -1,6 +1,7 @@
 /**
  * Poster Memento UI Application
  * Main application logic for browsing and searching posters
+ * Table-based view with sortable columns and image thumbnails
  */
 
 import { createAPI, APIError } from './api.js';
@@ -15,6 +16,9 @@ class PosterApp {
     this.searchStrategy = 'hybrid';
     this.posters = [];
     this.isLoading = false;
+    this.sortColumn = 'createdAt';
+    this.sortDirection = 'desc';
+    this.imageUrls = {}; // Cache: hash -> presigned URL
 
     // API client
     this.api = createAPI();
@@ -30,14 +34,22 @@ class PosterApp {
       nextBtn: document.getElementById('next-btn'),
       pageInfo: document.getElementById('page-info'),
       totalCount: document.getElementById('total-count'),
-      posterGrid: document.getElementById('poster-grid'),
+      posterTable: document.getElementById('poster-table'),
+      posterTbody: document.getElementById('poster-tbody'),
+      tableContainer: document.querySelector('.table-container'),
+      emptyState: document.getElementById('empty-state'),
       loading: document.getElementById('loading'),
       error: document.getElementById('error'),
       errorMessage: document.getElementById('error-message'),
       retryBtn: document.getElementById('retry-btn'),
       modal: document.getElementById('poster-modal'),
       modalClose: document.getElementById('modal-close'),
-      posterDetail: document.getElementById('poster-detail')
+      posterDetail: document.getElementById('poster-detail'),
+      lightbox: document.getElementById('lightbox-modal'),
+      lightboxClose: document.getElementById('lightbox-close'),
+      lightboxImage: document.getElementById('lightbox-image'),
+      lightboxCaption: document.getElementById('lightbox-caption'),
+      lightboxBackdrop: document.querySelector('.lightbox-backdrop')
     };
 
     // Bind event handlers
@@ -70,17 +82,57 @@ class PosterApp {
       this.loadPosters();
     });
 
-    // Modal
+    // Sortable columns
+    document.querySelectorAll('.poster-table th.sortable').forEach(th => {
+      th.addEventListener('click', () => this.handleSort(th.dataset.sort));
+    });
+
+    // Detail Modal
     this.elements.modalClose.addEventListener('click', () => this.closeModal());
     this.elements.modal.addEventListener('click', (e) => {
       if (e.target === this.elements.modal) this.closeModal();
     });
+
+    // Lightbox Modal
+    this.elements.lightboxClose.addEventListener('click', () => this.closeLightbox());
+    this.elements.lightboxBackdrop.addEventListener('click', () => this.closeLightbox());
+
+    // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') this.closeModal();
+      if (e.key === 'Escape') {
+        this.closeLightbox();
+        this.closeModal();
+      }
     });
 
     // Retry
     this.elements.retryBtn.addEventListener('click', () => this.loadPosters());
+  }
+
+  /**
+   * Handle column sort
+   */
+  handleSort(column) {
+    if (this.sortColumn === column) {
+      // Toggle direction
+      this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+      // New column, default to desc
+      this.sortColumn = column;
+      this.sortDirection = 'desc';
+    }
+
+    // Update UI indicators
+    document.querySelectorAll('.poster-table th.sortable').forEach(th => {
+      th.classList.remove('active', 'asc', 'desc');
+      if (th.dataset.sort === this.sortColumn) {
+        th.classList.add('active', this.sortDirection);
+      }
+    });
+
+    // Reload with new sort
+    this.currentPage = 1;
+    this.loadPosters();
   }
 
   /**
@@ -105,7 +157,6 @@ class PosterApp {
 
   /**
    * Navigate to a specific page
-   * @param {number} page - Page number
    */
   goToPage(page) {
     if (page < 1 || page > this.getTotalPages()) return;
@@ -115,7 +166,6 @@ class PosterApp {
 
   /**
    * Get total number of pages
-   * @returns {number} Total pages
    */
   getTotalPages() {
     return Math.ceil(this.totalPosters / this.limit);
@@ -154,10 +204,12 @@ class PosterApp {
           this.totalPosters = 0;
         }
       } else {
-        // Use entities endpoint
+        // Use entities endpoint with sort params
         result = await this.api.getPosters({
           limit: this.limit,
-          offset
+          offset,
+          sortBy: this.sortColumn,
+          sortOrder: this.sortDirection
         });
 
         // Handle entities response format
@@ -173,8 +225,11 @@ class PosterApp {
         }
       }
 
-      this.renderPosters();
+      this.renderTable();
       this.updatePagination();
+
+      // Load image URLs after rendering (non-blocking)
+      this.loadImageUrls();
     } catch (error) {
       console.error('Failed to load posters:', error);
       this.showError(true, this.getErrorMessage(error));
@@ -185,9 +240,52 @@ class PosterApp {
   }
 
   /**
+   * Load presigned URLs for poster images
+   */
+  async loadImageUrls() {
+    // Collect hashes that we don't have URLs for yet
+    const hashes = [];
+    for (const poster of this.posters) {
+      const hash = poster.metadata?.source_image_hash;
+      if (hash && !this.imageUrls[hash]) {
+        hashes.push(hash);
+      }
+    }
+
+    if (hashes.length === 0) return;
+
+    try {
+      const result = await this.api.getImageUrls(hashes);
+      if (result.data?.urls) {
+        // Update cache
+        Object.assign(this.imageUrls, result.data.urls);
+        // Update displayed thumbnails
+        this.updateThumbnails();
+      }
+    } catch (error) {
+      console.warn('Failed to load image URLs:', error);
+    }
+  }
+
+  /**
+   * Update thumbnail images after URLs are loaded
+   */
+  updateThumbnails() {
+    for (const poster of this.posters) {
+      const hash = poster.metadata?.source_image_hash;
+      if (hash && this.imageUrls[hash]) {
+        const wrapper = document.querySelector(`[data-hash="${hash}"]`);
+        if (wrapper && wrapper.classList.contains('thumbnail-loading')) {
+          wrapper.classList.remove('thumbnail-loading');
+          wrapper.classList.add('thumbnail-wrapper');
+          wrapper.innerHTML = `<img src="${this.escapeHtml(this.imageUrls[hash])}" alt="${this.escapeHtml(poster.name)}" loading="lazy">`;
+        }
+      }
+    }
+  }
+
+  /**
    * Get user-friendly error message
-   * @param {Error} error - Error object
-   * @returns {string} Error message
    */
   getErrorMessage(error) {
     if (error instanceof APIError) {
@@ -207,17 +305,15 @@ class PosterApp {
 
   /**
    * Show/hide loading state
-   * @param {boolean} show - Whether to show loading
    */
   showLoading(show) {
     this.elements.loading.classList.toggle('hidden', !show);
-    this.elements.posterGrid.classList.toggle('hidden', show);
+    this.elements.tableContainer.classList.toggle('hidden', show);
+    this.elements.emptyState.classList.add('hidden');
   }
 
   /**
    * Show/hide error state
-   * @param {boolean} show - Whether to show error
-   * @param {string} message - Error message
    */
   showError(show, message = '') {
     this.elements.error.classList.toggle('hidden', !show);
@@ -227,65 +323,118 @@ class PosterApp {
   }
 
   /**
-   * Render posters in the grid
+   * Render posters in the table
    */
-  renderPosters() {
+  renderTable() {
     if (this.posters.length === 0) {
-      this.elements.posterGrid.innerHTML = `
-        <div class="empty-state">
-          <h3>No posters found</h3>
-          <p>${this.currentSearch ? 'Try a different search term.' : 'No posters in the collection yet.'}</p>
-        </div>
-      `;
+      this.elements.tableContainer.classList.add('hidden');
+      this.elements.emptyState.classList.remove('hidden');
+      this.elements.emptyState.querySelector('p').textContent =
+        this.currentSearch ? 'Try a different search term.' : 'No posters in the collection yet.';
       return;
     }
 
-    this.elements.posterGrid.innerHTML = this.posters.map(poster => this.renderPosterCard(poster)).join('');
+    this.elements.tableContainer.classList.remove('hidden');
+    this.elements.emptyState.classList.add('hidden');
 
-    // Add click handlers to cards
-    this.elements.posterGrid.querySelectorAll('.poster-card').forEach((card, index) => {
-      card.addEventListener('click', () => this.openPosterDetail(this.posters[index]));
+    this.elements.posterTbody.innerHTML = this.posters.map((poster, index) =>
+      this.renderTableRow(poster, index)
+    ).join('');
+
+    // Add click handlers
+    this.elements.posterTbody.querySelectorAll('tr').forEach((row, index) => {
+      // Thumbnail click -> lightbox
+      const thumbnail = row.querySelector('.thumbnail-wrapper, .thumbnail-loading, .thumbnail-placeholder');
+      if (thumbnail) {
+        thumbnail.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.openLightbox(this.posters[index]);
+        });
+      }
+
+      // Name cell click -> detail modal
+      const nameCell = row.querySelector('.td-name');
+      if (nameCell) {
+        nameCell.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.openPosterDetail(this.posters[index]);
+        });
+      }
     });
   }
 
   /**
-   * Render a single poster card
-   * @param {object} poster - Poster entity
-   * @returns {string} HTML string
+   * Render a single table row
    */
-  renderPosterCard(poster) {
+  renderTableRow(poster, index) {
     const name = poster.name || 'Untitled';
-    const entityType = poster.entityType || 'Poster';
-    const observations = poster.observations || [];
-    const observationsText = observations.slice(0, 3).join(' ');
-    const createdAt = poster.createdAt ? new Date(poster.createdAt).toLocaleDateString() : '';
+    const posterType = poster.poster_type || 'unknown';
+    const createdAt = poster.createdAt ? new Date(poster.createdAt).toLocaleDateString() : '-';
+    const eventDate = poster.event_date || poster.date || '-';
+    const venueName = poster.venue_name || '-';
+    const hash = poster.metadata?.source_image_hash;
+
+    // Build artists display
+    const artistsHtml = this.renderArtists(poster);
+
+    // Thumbnail: show loading state, actual image loaded async
+    let thumbnailHtml;
+    if (hash && this.imageUrls[hash]) {
+      thumbnailHtml = `
+        <div class="thumbnail-wrapper" data-hash="${this.escapeHtml(hash)}">
+          <img src="${this.escapeHtml(this.imageUrls[hash])}" alt="${this.escapeHtml(name)}" loading="lazy">
+        </div>`;
+    } else if (hash) {
+      thumbnailHtml = `
+        <div class="thumbnail-loading" data-hash="${this.escapeHtml(hash)}">
+          <div class="mini-spinner"></div>
+        </div>`;
+    } else {
+      thumbnailHtml = `<div class="thumbnail-placeholder">🎨</div>`;
+    }
 
     return `
-      <div class="poster-card" data-name="${this.escapeHtml(name)}">
-        <div class="poster-card-header">
-          <h3>${this.escapeHtml(this.formatPosterName(name))}</h3>
-          <span class="poster-type">${this.escapeHtml(entityType)}</span>
-        </div>
-        <div class="poster-card-body">
-          <p class="poster-observations">
-            ${observationsText ? this.escapeHtml(observationsText) : '<em>No description available</em>'}
-          </p>
-          <div class="poster-meta">
-            ${createdAt ? `<span class="meta-tag">Added: ${createdAt}</span>` : ''}
-            ${observations.length > 0 ? `<span class="meta-tag">${observations.length} observations</span>` : ''}
-          </div>
-        </div>
-      </div>
+      <tr data-index="${index}">
+        <td class="td-thumbnail">${thumbnailHtml}</td>
+        <td class="td-name">${this.escapeHtml(this.formatPosterName(name))}</td>
+        <td><span class="type-badge ${posterType}">${this.escapeHtml(posterType)}</span></td>
+        <td class="artists-cell">${artistsHtml}</td>
+        <td>${this.escapeHtml(venueName)}</td>
+        <td>${this.escapeHtml(eventDate)}</td>
+        <td>${createdAt}</td>
+      </tr>
     `;
   }
 
   /**
+   * Render artists column content
+   */
+  renderArtists(poster) {
+    const headliner = poster.headliner;
+    const supporting = poster.supporting_acts || [];
+    const parts = [];
+
+    if (headliner) {
+      parts.push(`<span class="headliner">${this.escapeHtml(headliner)}</span>`);
+    }
+
+    if (supporting.length > 0) {
+      const displaySupporting = supporting.slice(0, 2);
+      const supportingText = displaySupporting.join(', ');
+      parts.push(`<span class="supporting">${this.escapeHtml(supportingText)}</span>`);
+
+      if (supporting.length > 2) {
+        parts.push(`<span class="more-artists">+${supporting.length - 2} more</span>`);
+      }
+    }
+
+    return parts.length > 0 ? parts.join('<br>') : '-';
+  }
+
+  /**
    * Format poster name for display
-   * @param {string} name - Raw entity name
-   * @returns {string} Formatted name
    */
   formatPosterName(name) {
-    // Remove common prefixes and format nicely
     return name
       .replace(/^poster_/i, '')
       .replace(/_/g, ' ')
@@ -308,12 +457,39 @@ class PosterApp {
   }
 
   /**
+   * Open lightbox with poster image
+   */
+  openLightbox(poster) {
+    const hash = poster.metadata?.source_image_hash;
+    const imageUrl = hash ? this.imageUrls[hash] : null;
+
+    if (!imageUrl) {
+      // No image available
+      return;
+    }
+
+    this.elements.lightboxImage.src = imageUrl;
+    this.elements.lightboxCaption.textContent = this.formatPosterName(poster.name);
+    this.elements.lightbox.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  }
+
+  /**
+   * Close lightbox
+   */
+  closeLightbox() {
+    this.elements.lightbox.classList.add('hidden');
+    this.elements.lightboxImage.src = '';
+    document.body.style.overflow = '';
+  }
+
+  /**
    * Open poster detail modal
-   * @param {object} poster - Poster entity
    */
   async openPosterDetail(poster) {
     this.elements.modal.classList.remove('hidden');
     this.elements.posterDetail.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading details...</p></div>';
+    document.body.style.overflow = 'hidden';
 
     try {
       // Get full poster details with relations
@@ -341,36 +517,76 @@ class PosterApp {
   }
 
   /**
-   * Render poster detail view
-   * @param {object} poster - Poster entity
-   * @param {array} relations - Poster relations
+   * Render poster detail view with new data model fields
    */
   renderPosterDetail(poster, relations = []) {
     const name = poster.name || 'Untitled';
     const entityType = poster.entityType || 'Poster';
+    const posterType = poster.poster_type || 'unknown';
     const observations = poster.observations || [];
     const createdAt = poster.createdAt ? new Date(poster.createdAt).toLocaleString() : 'Unknown';
     const id = poster.id || 'N/A';
+    const visualElements = poster.visual_elements || {};
+    const hash = poster.metadata?.source_image_hash;
+    const imageUrl = hash ? this.imageUrls[hash] : null;
 
-    const relationsHtml = relations.length > 0 ? `
-      <div class="detail-section">
-        <h3>Relations</h3>
-        <div class="relations-list">
-          ${relations.map(rel => `
-            <div class="relation-tag">
-              <span class="relation-type">${this.escapeHtml(rel.relationType || rel.type || 'Related')}</span>
-              <span class="relation-name">${this.escapeHtml(rel.to || rel.target || rel.name || 'Unknown')}</span>
+    // Group relations by type
+    const headliners = relations.filter(r => r.relationType === 'HEADLINED_ON');
+    const performers = relations.filter(r => r.relationType === 'PERFORMED_ON' || r.relationType === 'FEATURES_ARTIST');
+    const venues = relations.filter(r => r.relationType === 'ADVERTISES_VENUE');
+    const events = relations.filter(r => r.relationType === 'ADVERTISES_EVENT');
+    const otherRelations = relations.filter(r =>
+      !['HEADLINED_ON', 'PERFORMED_ON', 'FEATURES_ARTIST', 'ADVERTISES_VENUE', 'ADVERTISES_EVENT'].includes(r.relationType)
+    );
+
+    // Build visual elements section
+    let visualHtml = '';
+    if (Object.keys(visualElements).length > 0) {
+      const items = [];
+      if (visualElements.style) items.push(`<strong>Style:</strong> ${this.escapeHtml(visualElements.style)}`);
+      if (visualElements.dominant_colors?.length) items.push(`<strong>Colors:</strong> ${visualElements.dominant_colors.map(c => this.escapeHtml(c)).join(', ')}`);
+      if (visualElements.has_artist_photo) items.push('✓ Artist photo');
+      if (visualElements.has_album_artwork) items.push('✓ Album artwork');
+      if (visualElements.has_logo) items.push('✓ Logo');
+
+      if (items.length > 0) {
+        visualHtml = `
+          <div class="detail-section">
+            <h3>Visual Elements</h3>
+            <div class="visual-elements-list">
+              ${items.map(item => `<span class="meta-tag">${item}</span>`).join(' ')}
             </div>
-          `).join('')}
+          </div>
+        `;
+      }
+    }
+
+    // Build relations sections
+    const renderRelationGroup = (title, rels) => {
+      if (rels.length === 0) return '';
+      return `
+        <div class="detail-section">
+          <h3>${title}</h3>
+          <div class="relations-list">
+            ${rels.map(rel => `
+              <div class="relation-tag">
+                <span class="relation-name">${this.escapeHtml(rel.to || rel.target || rel.name || 'Unknown')}</span>
+              </div>
+            `).join('')}
+          </div>
         </div>
-      </div>
-    ` : '';
+      `;
+    };
 
     this.elements.posterDetail.innerHTML = `
       <div class="detail-header">
+        ${imageUrl ? `<img src="${this.escapeHtml(imageUrl)}" alt="${this.escapeHtml(name)}" class="detail-image" style="max-width: 200px; max-height: 200px; object-fit: contain; margin-bottom: 15px; border-radius: var(--radius); cursor: pointer;" onclick="window.posterApp.openLightbox(${JSON.stringify(poster).replace(/"/g, '&quot;')})">` : ''}
         <h2>${this.escapeHtml(this.formatPosterName(name))}</h2>
         <span class="detail-type">${this.escapeHtml(entityType)}</span>
+        <span class="type-badge ${posterType}" style="margin-left: 8px;">${this.escapeHtml(posterType)}</span>
       </div>
+
+      ${visualHtml}
 
       ${observations.length > 0 ? `
         <div class="detail-section">
@@ -381,12 +597,20 @@ class PosterApp {
         </div>
       ` : '<p class="detail-section"><em>No observations recorded.</em></p>'}
 
-      ${relationsHtml}
+      ${renderRelationGroup('Headliners', headliners)}
+      ${renderRelationGroup('Supporting Acts', performers)}
+      ${renderRelationGroup('Venue', venues)}
+      ${renderRelationGroup('Event', events)}
+      ${renderRelationGroup('Other Relations', otherRelations)}
 
       <div class="detail-meta">
         <p><strong>Entity Name:</strong> ${this.escapeHtml(name)}</p>
         <p><strong>ID:</strong> ${this.escapeHtml(id)}</p>
         <p><strong>Created:</strong> ${createdAt}</p>
+        ${poster.event_date ? `<p><strong>Event Date:</strong> ${this.escapeHtml(poster.event_date)}</p>` : ''}
+        ${poster.ticket_price ? `<p><strong>Ticket Price:</strong> ${this.escapeHtml(poster.ticket_price)}</p>` : ''}
+        ${poster.door_time ? `<p><strong>Door Time:</strong> ${this.escapeHtml(poster.door_time)}</p>` : ''}
+        ${poster.show_time ? `<p><strong>Show Time:</strong> ${this.escapeHtml(poster.show_time)}</p>` : ''}
       </div>
     `;
   }
@@ -397,12 +621,11 @@ class PosterApp {
   closeModal() {
     this.elements.modal.classList.add('hidden');
     this.elements.posterDetail.innerHTML = '';
+    document.body.style.overflow = '';
   }
 
   /**
    * Escape HTML to prevent XSS
-   * @param {string} text - Text to escape
-   * @returns {string} Escaped text
    */
   escapeHtml(text) {
     if (typeof text !== 'string') return String(text);

@@ -16,6 +16,8 @@ import { createTemporalRoutes } from './routes/temporal.js';
 import { createExpertiseRoutes } from './routes/expertise.js';
 import { createAdminRoutes } from './routes/admin.js';
 import { createProcessingRoutes } from './routes/processing.js';
+import { createImageRoutes } from './routes/images.js';
+import { createImageStorageFromEnv } from '../image-processor/ImageStorageService.js';
 
 // Import admin services
 import {
@@ -144,6 +146,7 @@ export function createApiServer(
         analytics: '/api/v1/analytics',
         temporal: '/api/v1/temporal',
         expertise: '/api/v1/expertise-areas',
+        images: '/api/v1/images',
         admin: '/api/v1/admin',
         processing: '/api/v1/processing'
       },
@@ -172,6 +175,17 @@ export function createApiServer(
   
   // Expertise area routes
   apiV1.use('/expertise-areas', createExpertiseRoutes(entityService));
+
+  // Image routes (for presigned URLs from MinIO)
+  if (process.env.MINIO_ENDPOINT || process.env.IMAGE_STORAGE_ENABLED !== 'false') {
+    try {
+      const imageStorage = createImageStorageFromEnv();
+      apiV1.use('/images', createImageRoutes(imageStorage));
+      logger.info('Image routes enabled at /api/v1/images');
+    } catch (error: any) {
+      logger.warn('Image routes not initialized', { error: error.message });
+    }
+  }
 
   // Admin routes (conditionally enabled)
   if (process.env.ADMIN_ENABLED !== 'false') {
@@ -250,7 +264,9 @@ export function createApiServer(
         'POST /api/v1/relations',
         'GET /api/v1/search',
         'GET /api/v1/analytics/statistics',
-        'GET /api/v1/expertise-areas'
+        'GET /api/v1/expertise-areas',
+        'GET /api/v1/images/:hash',
+        'POST /api/v1/images/batch'
       ]
     });
   });
