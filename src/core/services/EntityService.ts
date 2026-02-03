@@ -304,9 +304,9 @@ export class EntityService {
         includeValidation = false
       } = options;
 
-      // Build search options
+      // Build search options - request enough results for pagination
       const searchOptions = {
-        limit,
+        limit: limit + offset, // Request extra to handle offset
         entityTypes,
         caseSensitive: false
       };
@@ -325,10 +325,10 @@ export class EntityService {
         }
       }
 
-      // Apply pagination
-      if (offset > 0) {
-        results.entities = results.entities.slice(offset);
-        results.relations = results.relations.slice(offset);
+      // Apply pagination - skip 'offset' items and take 'limit' items
+      if (offset > 0 || results.entities.length > limit) {
+        results.entities = results.entities.slice(offset, offset + limit);
+        results.relations = results.relations.slice(offset, offset + limit);
       }
 
       // Add validation information if requested

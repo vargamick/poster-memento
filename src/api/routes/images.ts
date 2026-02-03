@@ -9,6 +9,29 @@ import { asyncHandler, ValidationError, NotFoundError } from '../middleware/erro
 import type { ImageStorageService } from '../../image-processor/ImageStorageService.js';
 
 /**
+ * Rewrite internal MinIO URLs to use the public endpoint
+ * This is necessary when running in Docker where the internal endpoint
+ * (e.g., minio:9000) is not accessible from the browser.
+ */
+function rewriteMinioUrl(url: string): string {
+  const publicUrl = process.env.MINIO_PUBLIC_URL;
+  if (!publicUrl) {
+    return url;
+  }
+
+  // Parse the internal URL and replace the host:port with the public URL
+  try {
+    const urlObj = new URL(url);
+    const publicUrlObj = new URL(publicUrl);
+    urlObj.protocol = publicUrlObj.protocol;
+    urlObj.host = publicUrlObj.host;
+    return urlObj.toString();
+  } catch {
+    return url;
+  }
+}
+
+/**
  * Create image routes
  */
 export function createImageRoutes(imageStorage: ImageStorageService): Router {
@@ -52,7 +75,7 @@ export function createImageRoutes(imageStorage: ImageStorageService): Router {
     res.json({
       data: {
         hash,
-        url: presignedUrl,
+        url: rewriteMinioUrl(presignedUrl),
         expiresIn: expiry
       }
     });
@@ -99,7 +122,7 @@ export function createImageRoutes(imageStorage: ImageStorageService): Router {
 
     for (const result of results) {
       if (result.url) {
-        urls[result.hash] = result.url;
+        urls[result.hash] = rewriteMinioUrl(result.url);
       } else if (result.error) {
         errors[result.hash] = result.error;
       }

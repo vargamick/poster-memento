@@ -1,7 +1,45 @@
 # Posters Memento Infrastructure
 # Separate from Memento-new to avoid conflicts
+# Fully self-contained with internal Ollama for vision processing
 
 services:
+  # Ollama Vision Model Server (OPTIONAL - disabled when using host's native Ollama)
+  # Uncomment this section to run Ollama inside Docker instead of using host's Ollama
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: posters-ollama
+  #   ports:
+  #     - "11435:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "ollama list || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     start_period: 60s
+  #     retries: 5
+  #   networks:
+  #     - posters-network
+  #   shm_size: '4gb'
+
+  # Ollama model initialization (OPTIONAL - only needed when using containerized Ollama)
+  # ollama-init:
+  #   image: ollama/ollama:latest
+  #   container_name: posters-ollama-init
+  #   depends_on:
+  #     ollama:
+  #       condition: service_healthy
+  #   environment:
+  #     - OLLAMA_HOST=ollama:11434
+  #   entrypoint: >
+  #     /bin/sh -c "
+  #     echo 'Pulling minicpm-v model...';
+  #     ollama pull minicpm-v;
+  #     echo 'Model ready!';
+  #     "
+  #   networks:
+  #     - posters-network
+
   # Neo4j Graph Database
   # Uses different ports to avoid conflict with Memento-new (7474/7687)
   neo4j:
@@ -122,10 +160,15 @@ services:
       - MINIO_ACCESS_KEY=posters
       - MINIO_SECRET_KEY=posters_password
       - MINIO_BUCKET=poster-images
+      # Public URL for browser access to presigned URLs
+      - MINIO_PUBLIC_URL=http://localhost:9010
 
       # Instance Configuration
       - CONFIG_PATH=/app/config/instance-config.json
       - UI_STATIC_PATH=/app/ui
+
+      # Ollama Vision Model - use host's native Ollama for better performance
+      - OLLAMA_URL=http://host.docker.internal:11434
 
       # Embedding Configuration (optional - set your key)
       # - VOYAGE_API_KEY=your-voyage-api-key
@@ -143,6 +186,9 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+      # Uncomment below when using containerized Ollama
+      # ollama-init:
+      #   condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
       interval: 30s
@@ -161,6 +207,9 @@ volumes:
     name: posters-postgres-data
   minio_data:
     name: posters-minio-data
+  # Uncomment when using containerized Ollama
+  # ollama_data:
+  #   name: posters-ollama-data
 
 networks:
   posters-network:

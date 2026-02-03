@@ -17,6 +17,7 @@ import { createExpertiseRoutes } from './routes/expertise.js';
 import { createAdminRoutes } from './routes/admin.js';
 import { createProcessingRoutes } from './routes/processing.js';
 import { createImageRoutes } from './routes/images.js';
+import { createPosterRoutes } from './routes/posters.js';
 import { createImageStorageFromEnv } from '../image-processor/ImageStorageService.js';
 
 // Import admin services
@@ -241,6 +242,16 @@ export function createApiServer(
       logger.info('Processing routes enabled at /api/v1/processing');
     } catch (error: any) {
       logger.warn('Processing routes not initialized', { error: error.message });
+    }
+  }
+
+  // Poster processing routes (for poster image processing UI)
+  if (process.env.POSTER_PROCESSING_ENABLED !== 'false' && dependencies.knowledgeGraphManager) {
+    try {
+      apiV1.use('/posters', createPosterRoutes(dependencies.knowledgeGraphManager));
+      logger.info('Poster processing routes enabled at /api/v1/posters');
+    } catch (error: any) {
+      logger.warn('Poster processing routes not initialized', { error: error.message });
     }
   }
 

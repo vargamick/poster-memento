@@ -23,7 +23,15 @@
       </div>
     </header>
 
+    <!-- Tab Navigation -->
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="browse">Browse Collection</button>
+      <button class="tab-btn" data-tab="processing">Process Images</button>
+    </nav>
+
     <main>
+      <!-- Browse Tab (existing content) -->
+      <div id="browse-tab" class="tab-content">
       <div class="controls">
         <div class="left-controls">
           <select id="limit-select">
@@ -57,7 +65,7 @@
               <th class="th-thumbnail">Image</th>
               <th class="th-name sortable" data-sort="name">Name <span class="sort-icon"></span></th>
               <th class="th-type sortable" data-sort="poster_type">Type <span class="sort-icon"></span></th>
-              <th class="th-artists">Artists</th>
+              <th class="th-artists">People</th>
               <th class="th-venue sortable" data-sort="venue_name">Venue <span class="sort-icon"></span></th>
               <th class="th-date sortable" data-sort="event_date">Date <span class="sort-icon"></span></th>
               <th class="th-added sortable active desc" data-sort="createdAt">Added <span class="sort-icon"></span></th>
@@ -94,6 +102,135 @@
           <div id="lightbox-caption" class="lightbox-caption"></div>
         </div>
       </div>
+      </div><!-- End Browse Tab -->
+
+      <!-- Processing Tab -->
+      <div id="processing-tab" class="tab-content hidden">
+        <!-- Source Folder Section -->
+        <section class="processing-section source-section">
+          <h2><span class="icon">📁</span> Source Images</h2>
+          <div class="source-controls">
+            <input type="text" id="source-path" value="./SourceImages" placeholder="Path to source images" readonly>
+            <button type="button" id="scan-btn" class="preview-btn">Scan Folder</button>
+            <button type="button" id="refresh-btn" class="secondary-btn">Refresh</button>
+          </div>
+          <div class="source-stats">
+            <span>Total: <strong id="total-images">0</strong> images</span>
+            <span>Unprocessed: <strong id="unprocessed-count">--</strong></span>
+          </div>
+        </section>
+
+        <!-- Configuration Section -->
+        <section class="processing-section config-section">
+          <h2><span class="icon">⚙️</span> Processing Configuration</h2>
+          <div class="config-grid">
+            <label>
+              Vision Model
+              <select id="model-select">
+                <option value="">Loading models...</option>
+              </select>
+            </label>
+            <label>
+              Batch Size
+              <select id="batch-size-select">
+                <option value="1">1 (Test single)</option>
+                <option value="5" selected>5</option>
+                <option value="10">10</option>
+                <option value="25">25</option>
+              </select>
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="skip-existing" checked>
+              Skip already processed
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="store-images" checked>
+              Store images in MinIO
+            </label>
+          </div>
+        </section>
+
+        <!-- File Browser Section -->
+        <section class="processing-section file-browser-section">
+          <h2><span class="icon">🖼️</span> Images to Process</h2>
+          <div class="file-controls">
+            <button type="button" id="select-all-btn">Select All</button>
+            <button type="button" id="deselect-all-btn">Deselect All</button>
+            <span class="selection-info">Selected: <strong id="selected-count">0</strong></span>
+          </div>
+          <div class="file-list" id="file-list">
+            <div class="file-list-empty">
+              <p>No images loaded</p>
+              <p>Click "Scan Folder" to discover images</p>
+            </div>
+          </div>
+          <div class="file-pagination">
+            <button type="button" id="files-prev-btn" disabled>Previous</button>
+            <span id="files-page-info">Page 0 of 0</span>
+            <button type="button" id="files-next-btn" disabled>Next</button>
+          </div>
+        </section>
+
+        <!-- Actions Section -->
+        <section class="processing-section actions-section">
+          <button type="button" id="preview-btn" class="preview-btn" disabled>Preview Selected</button>
+          <button type="button" id="process-btn" class="process-btn" disabled>Process Selected</button>
+          <button type="button" id="process-all-btn" class="secondary-btn" disabled>Process All Unprocessed</button>
+        </section>
+
+        <!-- Progress Section (shown during processing) -->
+        <section id="progress-section" class="processing-section progress-section hidden">
+          <h2><span class="icon">⏳</span> Processing Progress</h2>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+          <div class="progress-stats">
+            <span>Progress: <strong id="progress-percent">0%</strong></span>
+            <span>Processed: <strong id="progress-processed">0</strong></span>
+            <span class="succeeded">Succeeded: <strong id="progress-succeeded">0</strong></span>
+            <span class="failed">Failed: <strong id="progress-failed">0</strong></span>
+          </div>
+          <div class="progress-log" id="progress-log">
+            <!-- Processing log entries will appear here -->
+          </div>
+          <div class="progress-actions">
+            <button type="button" id="cancel-processing-btn" class="secondary-btn">Cancel</button>
+          </div>
+        </section>
+      </div><!-- End Processing Tab -->
+
+      <!-- Preview Modal -->
+      <div id="preview-modal" class="modal hidden">
+        <div class="modal-content preview-modal-content">
+          <button type="button" class="modal-close" id="preview-modal-close">&times;</button>
+          <div class="preview-layout">
+            <div class="preview-image-container">
+              <img id="preview-image" src="" alt="Preview">
+            </div>
+            <div class="preview-results">
+              <h3>Extraction Results</h3>
+              <div id="preview-loading" class="preview-loading hidden">
+                <div class="spinner"></div>
+                <p>Processing image with vision model...</p>
+              </div>
+              <div id="preview-data" class="preview-data hidden">
+                <!-- Extracted data fields will be rendered here -->
+              </div>
+              <div id="preview-error" class="preview-error hidden">
+                <div class="error-icon">⚠️</div>
+                <p id="preview-error-message">Error message</p>
+              </div>
+            </div>
+          </div>
+          <div class="preview-actions">
+            <span class="preview-info">Processing time: <strong id="preview-time">--</strong>ms | Model: <strong id="preview-model">--</strong></span>
+            <div class="preview-buttons">
+              <button type="button" id="preview-commit-btn" class="process-btn" disabled>Commit to Database</button>
+              <button type="button" id="preview-close-btn" class="secondary-btn">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
 
     <footer>
@@ -102,5 +239,6 @@
   </div>
 
   <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/processing.js"></script>
 </body>
 </html>

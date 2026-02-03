@@ -5,11 +5,14 @@
  */
 
 import { createAPI, APIError } from './api.js';
+import { processingManager } from './processing.js';
 
 class PosterApp {
   constructor() {
     // State
     this.currentPage = 1;
+    this.currentTab = 'browse';
+    this.processingInitialized = false;
     this.limit = 10;
     this.totalPosters = 0;
     this.currentSearch = '';
@@ -49,11 +52,16 @@ class PosterApp {
       lightboxClose: document.getElementById('lightbox-close'),
       lightboxImage: document.getElementById('lightbox-image'),
       lightboxCaption: document.getElementById('lightbox-caption'),
-      lightboxBackdrop: document.querySelector('.lightbox-backdrop')
+      lightboxBackdrop: document.querySelector('.lightbox-backdrop'),
+      // Tabs
+      tabButtons: document.querySelectorAll('.tab-btn'),
+      browseTab: document.getElementById('browse-tab'),
+      processingTab: document.getElementById('processing-tab')
     };
 
     // Bind event handlers
     this.bindEvents();
+    this.bindTabEvents();
 
     // Initial load
     this.loadPosters();
@@ -107,6 +115,49 @@ class PosterApp {
 
     // Retry
     this.elements.retryBtn.addEventListener('click', () => this.loadPosters());
+  }
+
+  /**
+   * Bind tab switching events
+   */
+  bindTabEvents() {
+    this.elements.tabButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        this.switchTab(tab);
+      });
+    });
+  }
+
+  /**
+   * Switch between tabs
+   */
+  async switchTab(tab) {
+    if (tab === this.currentTab) return;
+
+    // Update tab button states
+    this.elements.tabButtons.forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+
+    // Hide all tab content
+    this.elements.browseTab?.classList.add('hidden');
+    this.elements.processingTab?.classList.add('hidden');
+
+    // Show selected tab content
+    if (tab === 'browse') {
+      this.elements.browseTab?.classList.remove('hidden');
+    } else if (tab === 'processing') {
+      this.elements.processingTab?.classList.remove('hidden');
+
+      // Initialize processing manager on first visit
+      if (!this.processingInitialized) {
+        await processingManager.init();
+        this.processingInitialized = true;
+      }
+    }
+
+    this.currentTab = tab;
   }
 
   /**
@@ -240,13 +291,119 @@ class PosterApp {
   }
 
   /**
+   * Extract image hash from poster name or metadata
+   */
+  getImageHash(poster) {
+    // First try metadata
+    if (poster.metadata?.source_image_hash) {
+      return poster.metadata.source_image_hash;
+    }
+    // Extract from poster name (format: poster_HASH or poster_HASH-filename)
+    const match = poster.name?.match(/^poster_([a-f0-9]{16})/i);
+    return match ? match[1] : null;
+  }
+
+  /**
+   * Parse observations array to extract structured data
+   * Observations are in format "Field: value" or "Field name: value text"
+   */
+  parseObservations(poster) {
+    const observations = poster.observations || [];
+    const parsed = {};
+
+    for (const obs of observations) {
+      // Match patterns like "Poster type: film" or "Title: Something"
+      const match = obs.match(/^([^:]+):\s*(.+)$/i);
+      if (match) {
+        const key = match[1].toLowerCase().trim().replace(/\s+/g, '_');
+        const value = match[2].trim();
+        parsed[key] = value;
+      }
+    }
+
+    return parsed;
+  }
+
+  /**
+   * Get effective poster type from various sources
+   */
+  getPosterType(poster) {
+    // Direct field
+    if (poster.poster_type && poster.poster_type !== 'unknown') {
+      return poster.poster_type;
+    }
+    // Metadata
+    if (poster.metadata?.poster_type && poster.metadata.poster_type !== 'unknown') {
+      return poster.metadata.poster_type;
+    }
+    // Parse from observations
+    const parsed = this.parseObservations(poster);
+    if (parsed.poster_type && parsed.poster_type !== 'unknown') {
+      return parsed.poster_type.toLowerCase();
+    }
+    return 'unknown';
+  }
+
+  /**
+   * Get poster title from various sources
+   */
+  getPosterTitle(poster) {
+    // Direct field
+    if (poster.title) return poster.title;
+    if (poster.metadata?.title) return poster.metadata.title;
+
+    // Parse from observations
+    const parsed = this.parseObservations(poster);
+    if (parsed.title) return parsed.title;
+
+    // Check headliner for concert posters (not film)
+    const posterType = this.getPosterType(poster);
+    if (posterType !== 'film') {
+      if (parsed.headliner && !parsed.headliner.toLowerCase().includes('none') && !parsed.headliner.toLowerCase().includes('not specified') && !parsed.headliner.toLowerCase().includes('not applicable')) {
+        return parsed.headliner;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Get event date from various sources
+   */
+  getEventDate(poster) {
+    if (poster.event_date) return poster.event_date;
+    if (poster.date) return poster.date;
+    if (poster.metadata?.event_date) return poster.metadata.event_date;
+
+    const parsed = this.parseObservations(poster);
+    if (parsed.event_date) return parsed.event_date;
+
+    return null;
+  }
+
+  /**
+   * Get venue name from various sources
+   */
+  getVenueName(poster) {
+    if (poster.venue_name) return poster.venue_name;
+    if (poster.metadata?.venue_name) return poster.metadata.venue_name;
+
+    const parsed = this.parseObservations(poster);
+    if (parsed.venue && !parsed.venue.toLowerCase().includes('not shown') && !parsed.venue.toLowerCase().includes('not visible')) {
+      return parsed.venue;
+    }
+
+    return null;
+  }
+
+  /**
    * Load presigned URLs for poster images
    */
   async loadImageUrls() {
     // Collect hashes that we don't have URLs for yet
     const hashes = [];
     for (const poster of this.posters) {
-      const hash = poster.metadata?.source_image_hash;
+      const hash = this.getImageHash(poster);
       if (hash && !this.imageUrls[hash]) {
         hashes.push(hash);
       }
@@ -272,7 +429,7 @@ class PosterApp {
    */
   updateThumbnails() {
     for (const poster of this.posters) {
-      const hash = poster.metadata?.source_image_hash;
+      const hash = this.getImageHash(poster);
       if (hash && this.imageUrls[hash]) {
         const wrapper = document.querySelector(`[data-hash="${hash}"]`);
         if (wrapper && wrapper.classList.contains('thumbnail-loading')) {
@@ -367,22 +524,21 @@ class PosterApp {
    * Render a single table row
    */
   renderTableRow(poster, index) {
-    const name = poster.name || 'Untitled';
-    const posterType = poster.poster_type || 'unknown';
+    const posterType = this.getPosterType(poster);
     const createdAt = poster.createdAt ? new Date(poster.createdAt).toLocaleDateString() : '-';
-    const eventDate = poster.event_date || poster.date || '-';
-    const venueName = poster.venue_name || '-';
-    const hash = poster.metadata?.source_image_hash;
+    const eventDate = this.getEventDate(poster) || '-';
+    const venueName = this.getVenueName(poster) || '-';
+    const hash = this.getImageHash(poster);
 
-    // Build artists display
-    const artistsHtml = this.renderArtists(poster);
+    // Get descriptive title (from extracted metadata or fallback)
+    const displayInfo = this.getDisplayInfo(poster, posterType);
 
     // Thumbnail: show loading state, actual image loaded async
     let thumbnailHtml;
     if (hash && this.imageUrls[hash]) {
       thumbnailHtml = `
         <div class="thumbnail-wrapper" data-hash="${this.escapeHtml(hash)}">
-          <img src="${this.escapeHtml(this.imageUrls[hash])}" alt="${this.escapeHtml(name)}" loading="lazy">
+          <img src="${this.escapeHtml(this.imageUrls[hash])}" alt="${this.escapeHtml(displayInfo.title)}" loading="lazy">
         </div>`;
     } else if (hash) {
       thumbnailHtml = `
@@ -393,12 +549,20 @@ class PosterApp {
       thumbnailHtml = `<div class="thumbnail-placeholder">🎨</div>`;
     }
 
+    // Name cell with descriptive title and hash ID
+    const nameHtml = `
+      <div class="poster-name-cell">
+        <span class="poster-title">${this.escapeHtml(displayInfo.title)}</span>
+        ${hash ? `<span class="poster-id">${this.escapeHtml(hash)}</span>` : ''}
+      </div>
+    `;
+
     return `
       <tr data-index="${index}">
         <td class="td-thumbnail">${thumbnailHtml}</td>
-        <td class="td-name">${this.escapeHtml(this.formatPosterName(name))}</td>
+        <td class="td-name">${nameHtml}</td>
         <td><span class="type-badge ${posterType}">${this.escapeHtml(posterType)}</span></td>
-        <td class="artists-cell">${artistsHtml}</td>
+        <td class="artists-cell">${displayInfo.peopleHtml}</td>
         <td>${this.escapeHtml(venueName)}</td>
         <td>${this.escapeHtml(eventDate)}</td>
         <td>${createdAt}</td>
@@ -407,15 +571,118 @@ class PosterApp {
   }
 
   /**
+   * Get display info based on poster type
+   * Returns appropriate title and people/artists based on poster type
+   */
+  getDisplayInfo(poster, posterType) {
+    let title = '';
+    let peopleHtml = '-';
+
+    // Get title from parsed observations or metadata
+    const parsedTitle = this.getPosterTitle(poster);
+    if (parsedTitle) {
+      title = parsedTitle;
+    } else {
+      // Fallback to formatted name
+      title = this.formatPosterName(poster.name || 'Untitled');
+    }
+
+    // Build people/artists based on poster type
+    switch (posterType.toLowerCase()) {
+      case 'film':
+      case 'movie':
+        // Film posters show director/cast instead of artists
+        peopleHtml = this.renderFilmPeople(poster);
+        break;
+
+      case 'exhibition':
+      case 'art':
+        // Exhibition posters show artist name
+        peopleHtml = this.renderExhibitionPeople(poster);
+        break;
+
+      case 'event':
+      case 'concert':
+      case 'music':
+      default:
+        // Concert/event posters show headliner + supporting acts
+        peopleHtml = this.renderArtists(poster);
+        break;
+    }
+
+    return { title, peopleHtml };
+  }
+
+  /**
+   * Render people column for film posters (director/cast)
+   */
+  renderFilmPeople(poster) {
+    const metadata = poster.metadata || {};
+    const parts = [];
+
+    if (metadata.director) {
+      parts.push(`<span class="headliner">Dir: ${this.escapeHtml(metadata.director)}</span>`);
+    }
+
+    const cast = metadata.cast || metadata.starring || [];
+    if (cast.length > 0) {
+      const displayCast = cast.slice(0, 3);
+      parts.push(`<span class="supporting">${displayCast.map(c => this.escapeHtml(c)).join(', ')}</span>`);
+      if (cast.length > 3) {
+        parts.push(`<span class="more-artists">+${cast.length - 3} more</span>`);
+      }
+    }
+
+    return parts.length > 0 ? parts.join('<br>') : '-';
+  }
+
+  /**
+   * Render people column for exhibition posters (artist)
+   */
+  renderExhibitionPeople(poster) {
+    const metadata = poster.metadata || {};
+    const parts = [];
+
+    if (metadata.artist || metadata.exhibiting_artist) {
+      parts.push(`<span class="headliner">${this.escapeHtml(metadata.artist || metadata.exhibiting_artist)}</span>`);
+    }
+
+    if (metadata.curator) {
+      parts.push(`<span class="supporting">Curator: ${this.escapeHtml(metadata.curator)}</span>`);
+    }
+
+    return parts.length > 0 ? parts.join('<br>') : '-';
+  }
+
+  /**
    * Render artists column content
    */
   renderArtists(poster) {
-    const headliner = poster.headliner;
-    const supporting = poster.supporting_acts || [];
+    const parsed = this.parseObservations(poster);
     const parts = [];
+
+    // Get headliner from direct field or observations
+    let headliner = poster.headliner;
+    if (!headliner && parsed.headliner) {
+      const h = parsed.headliner;
+      // Filter out "none" or "not specified" values
+      if (!h.toLowerCase().includes('none') && !h.toLowerCase().includes('not specified') && !h.toLowerCase().includes('not applicable')) {
+        headliner = h;
+      }
+    }
 
     if (headliner) {
       parts.push(`<span class="headliner">${this.escapeHtml(headliner)}</span>`);
+    }
+
+    // Get supporting acts
+    let supporting = poster.supporting_acts || [];
+    if (supporting.length === 0 && parsed.supporting_acts) {
+      const s = parsed.supporting_acts;
+      if (!s.toLowerCase().includes('none') && !s.toLowerCase().includes('not specified') && !s.toLowerCase().includes('not applicable')) {
+        // Try to split by comma
+        supporting = s.split(',').map(a => a.trim()).filter(a => a);
+      }
     }
 
     if (supporting.length > 0) {
@@ -460,7 +727,7 @@ class PosterApp {
    * Open lightbox with poster image
    */
   openLightbox(poster) {
-    const hash = poster.metadata?.source_image_hash;
+    const hash = this.getImageHash(poster);
     const imageUrl = hash ? this.imageUrls[hash] : null;
 
     if (!imageUrl) {
@@ -522,12 +789,12 @@ class PosterApp {
   renderPosterDetail(poster, relations = []) {
     const name = poster.name || 'Untitled';
     const entityType = poster.entityType || 'Poster';
-    const posterType = poster.poster_type || 'unknown';
+    const posterType = this.getPosterType(poster);
     const observations = poster.observations || [];
     const createdAt = poster.createdAt ? new Date(poster.createdAt).toLocaleString() : 'Unknown';
     const id = poster.id || 'N/A';
     const visualElements = poster.visual_elements || {};
-    const hash = poster.metadata?.source_image_hash;
+    const hash = this.getImageHash(poster);
     const imageUrl = hash ? this.imageUrls[hash] : null;
 
     // Group relations by type

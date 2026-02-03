@@ -28,7 +28,11 @@ export class OllamaVisionProvider implements VisionModelProvider {
     const defaultPrompt = `Analyze this music/event poster image carefully.
 
 STEP 1: Determine the POSTER TYPE - what is the primary purpose of this poster?
-- event: Advertises a concert, show, festival, or live performance
+- concert: Advertises a concert, gig, or live music performance
+- festival: Advertises a music festival with multiple acts
+- comedy: Advertises a comedy show or standup performance
+- theater: Advertises a theatrical production or play
+- film: Advertises a movie or film screening
 - release: Promotes an album, single, EP, or music release
 - promo: General promotional/advertising poster (endorsements, competitions)
 - exhibition: Art exhibition, gallery show, or museum display
@@ -39,13 +43,14 @@ STEP 2: Extract ALL visible text from the image exactly as shown.
 
 STEP 3: Identify and structure the following based on poster type:
 
-FOR EVENT POSTERS:
+FOR CONCERT/FESTIVAL/COMEDY/THEATER POSTERS:
 - Event name/title
 - HEADLINER: Main artist (usually largest text)
 - SUPPORTING ACTS: Other artists (usually smaller, often "with" or "and")
-- Venue name
-- City, State/Country
-- Date (day, month, year)
+- Venue name (IMPORTANT: Extract venue name separately from date - e.g. "Metro", "Forum", "Sydney Opera House")
+- City (extract city name separately)
+- State/Country
+- Date (IMPORTANT: Only the date portion - e.g. "Friday, April 8th" or "March 15, 2024" - do NOT include venue in date)
 - Door time, Show time
 - Ticket price
 - Age restriction if shown
@@ -73,7 +78,7 @@ STEP 4: Describe VISUAL ELEMENTS:
 
 STEP 5: Return findings in this format:
 
-POSTER TYPE: [event|release|promo|exhibition|hybrid|unknown]
+POSTER TYPE: [concert|festival|comedy|theater|film|release|promo|exhibition|hybrid|unknown]
 
 EXTRACTED TEXT:
 [All text from the poster]
@@ -146,9 +151,9 @@ Be accurate and only include information you can clearly see in the image.`;
     const result: VisionExtractionResult['structured_data'] = {};
 
     // Parse poster type first
-    const posterTypeMatch = text.match(/POSTER TYPE:\s*(event|release|promo|exhibition|hybrid|unknown)/i);
+    const posterTypeMatch = text.match(/POSTER TYPE:\s*(concert|festival|comedy|theater|film|release|promo|exhibition|hybrid|unknown)/i);
     if (posterTypeMatch) {
-      result.poster_type = posterTypeMatch[1].toLowerCase() as 'event' | 'release' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
+      result.poster_type = posterTypeMatch[1].toLowerCase() as 'concert' | 'festival' | 'comedy' | 'theater' | 'film' | 'release' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
     }
 
     // Parse structured data section

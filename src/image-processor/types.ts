@@ -5,7 +5,7 @@
 export interface VisionExtractionResult {
   extracted_text: string;
   structured_data?: {
-    poster_type?: 'event' | 'release' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
+    poster_type?: 'concert' | 'festival' | 'comedy' | 'theater' | 'film' | 'release' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
     title?: string;
     artists?: string[];
     headliner?: string;
@@ -74,7 +74,7 @@ export interface StoredImage {
 export interface PosterEntity {
   name: string;
   entityType: 'Poster';
-  poster_type?: 'event' | 'release' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
+  poster_type?: 'concert' | 'festival' | 'comedy' | 'theater' | 'film' | 'release' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
   title?: string;
   headliner?: string;
   supporting_acts?: string[];

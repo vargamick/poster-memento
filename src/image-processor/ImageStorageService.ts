@@ -15,11 +15,14 @@ export interface ImageStorageConfig {
   accessKey: string;
   secretKey: string;
   bucket: string;
+  publicUrl?: string; // Public URL for presigned URLs (e.g., http://localhost:9010)
 }
 
 export class ImageStorageService {
   private minio: Client;
   private bucket: string;
+  private publicUrl?: string;
+  private internalUrl: string;
 
   constructor(config: ImageStorageConfig) {
     const endpoint = config.endpoint.includes(':')
@@ -37,6 +40,8 @@ export class ImageStorageService {
       secretKey: config.secretKey
     });
     this.bucket = config.bucket;
+    this.publicUrl = config.publicUrl;
+    this.internalUrl = `http://${endpoint}:${port}`;
   }
 
   /**
@@ -119,14 +124,26 @@ export class ImageStorageService {
   }
 
   /**
+   * Rewrite presigned URL to use public URL if configured
+   */
+  private rewriteUrl(url: string): string {
+    if (this.publicUrl) {
+      return url.replace(this.internalUrl, this.publicUrl);
+    }
+    return url;
+  }
+
+  /**
    * Get a presigned URL for temporary access to an image
    */
   async getPresignedUrl(key: string, expirySeconds: number = 3600): Promise<string> {
-    return await this.minio.presignedGetObject(this.bucket, key, expirySeconds);
+    const url = await this.minio.presignedGetObject(this.bucket, key, expirySeconds);
+    return this.rewriteUrl(url);
   }
 
   /**
    * Get presigned URL by hash (looks for the original image)
+   * If publicUrl is configured, returns a direct public URL (for buckets with anonymous access)
    */
   async getPresignedUrlByHash(hash: string, expirySeconds: number = 3600): Promise<string | null> {
     try {
@@ -139,8 +156,13 @@ export class ImageStorageService {
           if (!found && obj.name) {
             found = true;
             try {
-              const url = await this.minio.presignedGetObject(this.bucket, obj.name, expirySeconds);
-              resolve(url);
+              // If publicUrl is configured, return direct URL (for public buckets)
+              if (this.publicUrl) {
+                resolve(`${this.publicUrl}/${this.bucket}/${obj.name}`);
+              } else {
+                const url = await this.minio.presignedGetObject(this.bucket, obj.name, expirySeconds);
+                resolve(url);
+              }
             } catch (e) {
               reject(e);
             }
@@ -227,6 +249,7 @@ export function createImageStorageFromEnv(): ImageStorageService {
     endpoint: process.env.MINIO_ENDPOINT || 'localhost:9000',
     accessKey: process.env.MINIO_ACCESS_KEY || 'minioadmin',
     secretKey: process.env.MINIO_SECRET_KEY || process.env.MINIO_PASSWORD || 'poster-memento-minio',
-    bucket: process.env.MINIO_BUCKET || 'poster-images'
+    bucket: process.env.MINIO_BUCKET || 'poster-images',
+    publicUrl: process.env.MINIO_PUBLIC_URL // e.g., http://localhost:9010 for Docker
   });
 }

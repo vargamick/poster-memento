@@ -190,9 +190,7 @@ export class PosterProcessor {
       extracted_text: extraction.extracted_text,
       visual_elements: structured.visual_elements,
       observations: [
-        `Extracted from image: ${path.basename(imagePath)}`,
-        `Poster type: ${structured.poster_type || 'unknown'}`,
-        extraction.extracted_text.substring(0, 500) + (extraction.extracted_text.length > 500 ? '...' : '')
+        `Extracted from image: ${path.basename(imagePath)}`
       ],
       metadata: {
         source_image_url: storedImage?.url || `file://${imagePath}`,

@@ -168,6 +168,113 @@ export class PosterAPI {
       body: JSON.stringify({ hashes, expiry })
     });
   }
+
+  // ============================================
+  // Poster Processing API Methods
+  // ============================================
+
+  /**
+   * Scan source folder for images
+   * @param {object} options - Scan options
+   * @param {string} options.sourcePath - Path to scan (optional)
+   * @param {number} options.offset - Pagination offset
+   * @param {number} options.limit - Number of results
+   * @param {boolean} options.recursive - Scan recursively
+   * @returns {Promise<object>} Scan results with file list
+   */
+  async scanPosters(options = {}) {
+    const params = new URLSearchParams();
+    if (options.sourcePath) params.set('sourcePath', options.sourcePath);
+    if (options.offset !== undefined) params.set('offset', options.offset.toString());
+    if (options.limit !== undefined) params.set('limit', options.limit.toString());
+    if (options.recursive !== undefined) params.set('recursive', options.recursive.toString());
+
+    const queryString = params.toString();
+    return this.request(`/api/v1/posters/scan${queryString ? '?' + queryString : ''}`);
+  }
+
+  /**
+   * Get available vision models
+   * @returns {Promise<object>} Available models with default
+   */
+  async getVisionModels() {
+    return this.request('/api/v1/posters/models');
+  }
+
+  /**
+   * Preview poster extraction (no database storage)
+   * @param {string} imagePath - Path to the image file
+   * @param {string} modelKey - Optional vision model to use
+   * @returns {Promise<object>} Extraction preview result
+   */
+  async previewPoster(imagePath, modelKey) {
+    return this.request('/api/v1/posters/preview', {
+      method: 'POST',
+      body: JSON.stringify({ imagePath, modelKey })
+    });
+  }
+
+  /**
+   * Commit a previewed entity to the database
+   * @param {object} entity - The PosterEntity to commit
+   * @param {boolean} storeImage - Whether to store the image
+   * @returns {Promise<object>} Commit result
+   */
+  async commitPoster(entity, storeImage = false) {
+    return this.request('/api/v1/posters/commit', {
+      method: 'POST',
+      body: JSON.stringify({ entity, storeImage })
+    });
+  }
+
+  /**
+   * Process a batch of poster images
+   * @param {object} options - Processing options
+   * @param {string[]} options.filePaths - Specific files to process
+   * @param {string} options.sourcePath - Source directory to scan
+   * @param {number} options.batchSize - Batch size (default: 10)
+   * @param {number} options.offset - Pagination offset
+   * @param {boolean} options.skipIfExists - Skip already processed
+   * @param {string} options.modelKey - Vision model to use
+   * @param {boolean} options.storeImages - Store images in MinIO
+   * @returns {Promise<object>} Processing result
+   */
+  async processPosters(options = {}) {
+    return this.request('/api/v1/posters/process', {
+      method: 'POST',
+      body: JSON.stringify(options)
+    });
+  }
+
+  /**
+   * Get processing status
+   * @param {string} sourcePath - Optional source path
+   * @returns {Promise<object>} Processing status
+   */
+  async getProcessingStatus(sourcePath) {
+    const params = sourcePath ? `?sourcePath=${encodeURIComponent(sourcePath)}` : '';
+    return this.request(`/api/v1/posters/process/status${params}`);
+  }
+
+  /**
+   * Reset processing state
+   * @param {string} sourcePath - Optional source path to reset
+   * @returns {Promise<object>} Reset result
+   */
+  async resetProcessingState(sourcePath) {
+    return this.request('/api/v1/posters/process/reset', {
+      method: 'POST',
+      body: JSON.stringify({ sourcePath })
+    });
+  }
+
+  /**
+   * Check poster processing health
+   * @returns {Promise<object>} Health status
+   */
+  async checkProcessingHealth() {
+    return this.request('/api/v1/posters/health');
+  }
 }
 
 /**
