@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import type { EntityService } from '../../core/services/EntityService.js';
+import { PosterTypeQueryService } from '../../core/services/PosterTypeQueryService.js';
+import type { StorageProvider } from '../../storage/StorageProvider.js';
 import { asyncHandler, ValidationError, NotFoundError } from '../middleware/errorHandler.js';
+import { logger } from '../../utils/logger.js';
 
 /**
  * Project only requested fields from an entity
@@ -53,8 +56,11 @@ function matchTerm(term: string, entityName: string, mode: string, prefix?: stri
 /**
  * Create entity routes
  */
-export function createEntityRoutes(entityService: EntityService): Router {
+export function createEntityRoutes(entityService: EntityService, storageProvider?: StorageProvider): Router {
   const router = Router();
+
+  // Create PosterTypeQueryService for enriching Poster entities with HAS_TYPE relationships
+  const posterTypeQueryService = storageProvider ? new PosterTypeQueryService(storageProvider) : null;
 
   /**
    * GET /entities - List or search entities with optional filtering
@@ -112,6 +118,32 @@ export function createEntityRoutes(entityService: EntityService): Router {
 
       let entities = result.data?.entities || [];
 
+      // Enrich Poster entities with HAS_TYPE relationships
+      logger.debug('Entities route: posterTypeQueryService available:', !!posterTypeQueryService, 'entities count:', entities.length);
+      if (posterTypeQueryService && entities.length > 0) {
+        const posterEntities = entities.filter(e => e.entityType === 'Poster');
+        logger.debug('Poster entities to enrich:', posterEntities.length);
+        if (posterEntities.length > 0) {
+          try {
+            const enrichedPosters = await posterTypeQueryService.enrichPostersWithTypes(posterEntities);
+            logger.debug('Enriched posters:', enrichedPosters.length, 'sample typeRelationships:', enrichedPosters[0]?.typeRelationships);
+            const enrichedMap = new Map(enrichedPosters.map(p => [p.name, p]));
+            entities = entities.map(e =>
+              e.entityType === 'Poster' && enrichedMap.has(e.name)
+                ? enrichedMap.get(e.name)!
+                : e
+            );
+          } catch (err: any) {
+            logger.error('[entities route - search] Failed to enrich posters with types:', {
+              message: err?.message,
+              stack: err?.stack,
+              name: err?.name,
+              raw: String(err)
+            });
+          }
+        }
+      }
+
       // Apply field projection if requested
       if (parsedFields.length > 0) {
         entities = entities.map(e => projectFields(e, parsedFields));
@@ -146,6 +178,32 @@ export function createEntityRoutes(entityService: EntityService): Router {
       }
 
       let entities = result.data?.entities || [];
+
+      // Enrich Poster entities with HAS_TYPE relationships
+      logger.info('[entities route] posterTypeQueryService available:', !!posterTypeQueryService, 'entities count:', entities.length);
+      if (posterTypeQueryService && entities.length > 0) {
+        const posterEntities = entities.filter(e => e.entityType === 'Poster');
+        logger.info('[entities route] Poster entities to enrich:', posterEntities.length);
+        if (posterEntities.length > 0) {
+          try {
+            const enrichedPosters = await posterTypeQueryService.enrichPostersWithTypes(posterEntities);
+            logger.info('[entities route] Enriched posters:', enrichedPosters.length, 'sample typeRelationships:', JSON.stringify(enrichedPosters[0]?.typeRelationships?.slice(0, 2)));
+            const enrichedMap = new Map(enrichedPosters.map(p => [p.name, p]));
+            entities = entities.map(e =>
+              e.entityType === 'Poster' && enrichedMap.has(e.name)
+                ? enrichedMap.get(e.name)!
+                : e
+            );
+          } catch (err: any) {
+            logger.error('[entities route] Failed to enrich posters with types:', {
+              message: err?.message,
+              stack: err?.stack,
+              name: err?.name,
+              raw: String(err)
+            });
+          }
+        }
+      }
 
       // Apply term matching if requested
       if (parsedMatch.length > 0 && entities.length > 0) {
@@ -230,8 +288,22 @@ export function createEntityRoutes(entityService: EntityService): Router {
       throw new NotFoundError(result.errors?.[0] || 'Entity not found');
     }
 
+    let entity = result.data;
+
+    // Enrich Poster entity with HAS_TYPE relationships
+    if (posterTypeQueryService && entity?.entityType === 'Poster') {
+      try {
+        const enrichedPosters = await posterTypeQueryService.enrichPostersWithTypes([entity]);
+        if (enrichedPosters.length > 0) {
+          entity = enrichedPosters[0];
+        }
+      } catch (err) {
+        logger.warn('Failed to enrich poster with types:', err);
+      }
+    }
+
     res.json({
-      data: result.data,
+      data: entity,
       warnings: result.warnings,
       suggestions: result.suggestions
     });

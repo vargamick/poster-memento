@@ -112,6 +112,7 @@
           <h2><span class="icon">📁</span> Source Images</h2>
           <div class="source-controls">
             <input type="text" id="source-path" value="./SourceImages" placeholder="Path to source images" readonly>
+            <button type="button" id="browse-btn" class="secondary-btn">Browse...</button>
             <button type="button" id="scan-btn" class="preview-btn">Scan Folder</button>
             <button type="button" id="refresh-btn" class="secondary-btn">Refresh</button>
           </div>
@@ -396,6 +397,47 @@
             <div class="preview-buttons">
               <button type="button" id="preview-commit-btn" class="process-btn" disabled>Commit to Database</button>
               <button type="button" id="preview-close-btn" class="secondary-btn">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Folder Browser Modal -->
+      <div id="folder-browser-modal" class="modal hidden">
+        <div class="modal-content folder-browser-modal-content">
+          <button type="button" class="modal-close" id="folder-browser-close">&times;</button>
+          <div class="folder-browser">
+            <div class="folder-browser-header">
+              <h3>Select Source Folder</h3>
+              <div class="folder-browser-path">
+                <span class="path-label">Current:</span>
+                <span id="folder-browser-current-path" class="current-path">/</span>
+              </div>
+            </div>
+            <div class="folder-browser-navigation">
+              <button type="button" id="folder-browser-up-btn" class="secondary-btn" disabled>
+                <span class="icon">⬆️</span> Parent Folder
+              </button>
+              <button type="button" id="folder-browser-home-btn" class="secondary-btn">
+                <span class="icon">🏠</span> Home
+              </button>
+            </div>
+            <div id="folder-browser-loading" class="folder-browser-loading hidden">
+              <div class="spinner"></div>
+              <p>Loading directories...</p>
+            </div>
+            <div id="folder-browser-error" class="folder-browser-error hidden">
+              <p id="folder-browser-error-message">Error loading directories</p>
+            </div>
+            <div id="folder-browser-list" class="folder-browser-list">
+              <!-- Directory items will be rendered here -->
+            </div>
+            <div class="folder-browser-info">
+              <span id="folder-browser-image-count">0 images in this folder</span>
+            </div>
+            <div class="folder-browser-actions">
+              <button type="button" id="folder-browser-select-btn" class="process-btn">Select This Folder</button>
+              <button type="button" id="folder-browser-cancel-btn" class="secondary-btn">Cancel</button>
             </div>
           </div>
         </div>

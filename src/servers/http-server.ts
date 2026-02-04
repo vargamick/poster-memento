@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -429,8 +430,8 @@ apiV1.use(authenticateApiKey);
 // Apply request logging to API routes
 apiV1.use(requestLogger);
 
-// Entity routes
-apiV1.use('/entities', createEntityRoutes(entityService));
+// Entity routes (pass storageProvider for Poster type enrichment)
+apiV1.use('/entities', createEntityRoutes(entityService, storageProvider));
 
 // Relation routes  
 apiV1.use('/relations', createRelationRoutes(relationService));

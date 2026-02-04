@@ -4,7 +4,7 @@
 
 import { VisionModelFactory } from './VisionModelFactory.js';
 import { ImageStorageService, createImageStorageFromEnv } from './ImageStorageService.js';
-import { VisionModelProvider, PosterEntity, VisionExtractionResult } from './types.js';
+import { VisionModelProvider, PosterEntity, VisionExtractionResult, TypeInference } from './types.js';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
@@ -167,10 +167,18 @@ export class PosterProcessor {
 
     const decade = year ? `${Math.floor(year / 10) * 10}s` : undefined;
 
+    // Build inferred_types for HAS_TYPE relationships
+    const inferredTypes = this.buildInferredTypes(
+      structured.poster_type || 'unknown',
+      extraction.confidence,
+      extraction.model
+    );
+
     return {
       name: `poster_${hash}`,
       entityType: 'Poster',
-      poster_type: structured.poster_type || 'unknown',
+      poster_type: structured.poster_type || 'unknown', // Kept for backward compatibility
+      inferred_types: inferredTypes,
       title: structured.title,
       headliner: structured.headliner,
       supporting_acts: structured.supporting_acts,
@@ -203,6 +211,49 @@ export class PosterProcessor {
         processing_date: new Date().toISOString()
       }
     };
+  }
+
+  /**
+   * Build inferred_types array from poster_type
+   * Handles 'hybrid' by splitting into multiple types
+   */
+  private buildInferredTypes(
+    posterType: string,
+    confidence?: number,
+    visionModel?: string
+  ): TypeInference[] {
+    const baseConfidence = confidence ?? 0.8;
+    const inferredTypes: TypeInference[] = [];
+
+    if (posterType === 'hybrid') {
+      // Hybrid typically means release + concert
+      // Split into two types with slightly lower confidence
+      inferredTypes.push({
+        type_key: 'release',
+        confidence: baseConfidence * 0.9,
+        source: 'vision',
+        evidence: `Vision model ${visionModel} detected hybrid (release + concert)`,
+        is_primary: true
+      });
+      inferredTypes.push({
+        type_key: 'concert',
+        confidence: baseConfidence * 0.85,
+        source: 'vision',
+        evidence: `Vision model ${visionModel} detected hybrid (release + concert)`,
+        is_primary: false
+      });
+    } else {
+      // Single type
+      inferredTypes.push({
+        type_key: posterType,
+        confidence: baseConfidence,
+        source: 'vision',
+        evidence: `Vision model ${visionModel} classification`,
+        is_primary: true
+      });
+    }
+
+    return inferredTypes;
   }
 
   private generateHash(filePath: string): string {

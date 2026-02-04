@@ -50,6 +50,35 @@ export interface QASuggestion {
 }
 
 /**
+ * Suggestion for a relationship operation
+ */
+export interface QARelationshipSuggestion {
+  /** Type of operation to perform */
+  operation: 'create' | 'update' | 'delete';
+  /** Relationship type (e.g., 'HAS_TYPE') */
+  relationType: string;
+  /** Source entity name */
+  fromEntity: string;
+  /** Target entity name */
+  toEntity: string;
+  /** Current relationship metadata (for update/delete) */
+  currentMetadata?: Record<string, unknown>;
+  /** Suggested relationship metadata (for create/update) */
+  suggestedMetadata?: {
+    confidence: number;
+    source: ValidationSource;
+    evidence?: string;
+    inferred_by?: string;
+    is_primary?: boolean;
+  };
+  /** Human-readable reason for the suggestion */
+  reason: string;
+  /** External reference */
+  externalId?: string;
+  externalUrl?: string;
+}
+
+/**
  * External match found during validation
  */
 export interface ExternalMatch {
@@ -72,6 +101,8 @@ export interface QAValidationResult {
   validatedAt: string;             // ISO timestamp
   validatorResults: ValidatorResult[];
   suggestions: QASuggestion[];
+  /** Relationship operation suggestions (for graph-native validation) */
+  relationshipSuggestions?: QARelationshipSuggestion[];
   externalMatches: ExternalMatch[];
   processingTimeMs: number;
 }

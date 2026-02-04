@@ -6,6 +6,7 @@
  */
 
 import { EntityService } from '../core/services/EntityService.js';
+import { RelationService } from '../core/services/RelationService.js';
 import { PosterEntity } from '../image-processor/types.js';
 import {
   QAValidationConfig,
@@ -16,6 +17,7 @@ import {
   QAReport,
   QAReportSummary,
   QASuggestion,
+  QARelationshipSuggestion,
   ValidatorResult,
   ValidatorName,
   ValidationContext,
@@ -44,6 +46,7 @@ import {
  */
 export interface QAServiceDependencies {
   entityService: EntityService;
+  relationService?: RelationService;
   discogsToken?: string;
   tmdbApiKey?: string;
 }
@@ -71,6 +74,7 @@ function generateReportId(): string {
  */
 export class QAValidationService {
   private entityService: EntityService;
+  private relationService: RelationService | null;
   private validators: Map<ValidatorName, BaseValidator>;
   private jobs: Map<string, QAJobStatus>;
   private reports: Map<string, QAReport>;
@@ -78,6 +82,7 @@ export class QAValidationService {
 
   constructor(dependencies: QAServiceDependencies) {
     this.entityService = dependencies.entityService;
+    this.relationService = dependencies.relationService ?? null;
     this.jobs = new Map();
     this.reports = new Map();
     this.runningJobs = new Set();
@@ -557,6 +562,111 @@ export class QAValidationService {
       results.push({
         entityId: fix.entityId,
         field: fix.field,
+        success: result.success,
+        error: result.error,
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * Apply a relationship fix (create, update, or delete a relationship)
+   */
+  async applyRelationshipFix(
+    suggestion: QARelationshipSuggestion
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!this.relationService) {
+      return { success: false, error: 'RelationService not configured' };
+    }
+
+    const now = Date.now();
+    const relationData = {
+      from: suggestion.fromEntity,
+      to: suggestion.toEntity,
+      relationType: suggestion.relationType,
+      confidence: suggestion.suggestedMetadata?.confidence,
+      metadata: {
+        createdAt: now,
+        updatedAt: now,
+        source: suggestion.suggestedMetadata?.source,
+        evidence: suggestion.suggestedMetadata?.evidence,
+        inferred_by: suggestion.suggestedMetadata?.inferred_by || 'QAValidationService',
+        inferred_at: new Date().toISOString(),
+        is_primary: suggestion.suggestedMetadata?.is_primary ?? true,
+      },
+    };
+
+    try {
+      switch (suggestion.operation) {
+        case 'create': {
+          const createResult = await this.relationService.createRelations([relationData]);
+          return createResult.success
+            ? { success: true }
+            : { success: false, error: createResult.errors?.join(', ') };
+        }
+
+        case 'update': {
+          // For update, we delete the old relationship and create a new one
+          // First, delete the existing relationship (if it exists)
+          const existingRelation = await this.relationService.getRelation(
+            suggestion.fromEntity,
+            suggestion.toEntity,
+            suggestion.relationType
+          );
+
+          if (existingRelation.success && existingRelation.data) {
+            await this.relationService.deleteRelations([existingRelation.data]);
+          }
+
+          // Then create the new relationship
+          const createResult = await this.relationService.createRelations([relationData]);
+          return createResult.success
+            ? { success: true }
+            : { success: false, error: createResult.errors?.join(', ') };
+        }
+
+        case 'delete': {
+          const existingRelation = await this.relationService.getRelation(
+            suggestion.fromEntity,
+            suggestion.toEntity,
+            suggestion.relationType
+          );
+
+          if (!existingRelation.success || !existingRelation.data) {
+            return { success: false, error: 'Relationship not found' };
+          }
+
+          const deleteResult = await this.relationService.deleteRelations([existingRelation.data]);
+          return deleteResult.success
+            ? { success: true }
+            : { success: false, error: deleteResult.errors?.join(', ') };
+        }
+
+        default:
+          return { success: false, error: `Unknown operation: ${suggestion.operation}` };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Apply multiple relationship fixes in batch
+   */
+  async applyRelationshipFixBatch(
+    suggestions: QARelationshipSuggestion[]
+  ): Promise<Array<{ fromEntity: string; toEntity: string; success: boolean; error?: string }>> {
+    const results: Array<{ fromEntity: string; toEntity: string; success: boolean; error?: string }> = [];
+
+    for (const suggestion of suggestions) {
+      const result = await this.applyRelationshipFix(suggestion);
+      results.push({
+        fromEntity: suggestion.fromEntity,
+        toEntity: suggestion.toEntity,
         success: result.success,
         error: result.error,
       });

@@ -5,10 +5,12 @@
  * and stores the extracted metadata in the knowledge graph.
  */
 
-import { KnowledgeGraphManager } from '../../../KnowledgeGraphManager.js';
+import { KnowledgeGraphManager, type Relation } from '../../../KnowledgeGraphManager.js';
 import { createPosterProcessor, ProcessingResult } from '../../../image-processor/PosterProcessor.js';
 import { handleScanPosters } from './scanPosters.js';
 import { logger } from '../../../utils/logger.js';
+import { ensurePosterTypesSeeded, resetPosterTypeSeedCache } from '../../../utils/ensurePosterTypes.js';
+import type { TypeInference } from '../../../image-processor/types.js';
 
 export interface ProcessPosterBatchArgs {
   /** Specific file paths to process (optional - if not provided, uses sourcePath) */
@@ -86,6 +88,17 @@ export async function handleProcessPosterBatch(
   const sourcePath = args.sourcePath || process.env.SOURCE_IMAGES_PATH || './SourceImages';
 
   logger.info('Processing poster batch', { batchSize, offset, skipIfExists, sourcePath });
+
+  // Ensure PosterType entities exist before processing
+  // This auto-seeds on fresh databases
+  try {
+    const seedResult = await ensurePosterTypesSeeded(knowledgeGraphManager);
+    if (seedResult.created > 0) {
+      logger.info(`Auto-seeded ${seedResult.created} PosterType entities`);
+    }
+  } catch (seedError) {
+    logger.warn('Failed to auto-seed PosterType entities, continuing anyway:', seedError);
+  }
 
   const result: ProcessPosterBatchResult = {
     success: true,
@@ -295,6 +308,15 @@ export async function handleProcessPosterBatch(
             }
           }
 
+          // Create HAS_TYPE relationships for inferred types
+          if (entity.inferred_types && entity.inferred_types.length > 0) {
+            await createTypeRelationships(
+              knowledgeGraphManager,
+              entity.name,
+              entity.inferred_types
+            );
+          }
+
           result.succeeded++;
           state.processedFiles.add(filePath);
 
@@ -402,8 +424,52 @@ export function getProcessingStats(sourcePath?: string): {
 
 /**
  * Reset processing state for a source path
+ * Also resets the PosterType seed cache to ensure re-checking on next run
  */
 export function resetProcessingState(sourcePath?: string): void {
   const path = sourcePath || process.env.SOURCE_IMAGES_PATH || './SourceImages';
   processingState.delete(path);
+  // Reset seed cache so next processing run will re-check for PosterType entities
+  resetPosterTypeSeedCache();
+}
+
+/**
+ * Create HAS_TYPE relationships for a poster based on inferred types
+ */
+async function createTypeRelationships(
+  knowledgeGraphManager: KnowledgeGraphManager,
+  posterName: string,
+  inferredTypes: TypeInference[]
+): Promise<void> {
+  const now = Date.now();
+  const typeRelations: Relation[] = [];
+
+  for (const typeInference of inferredTypes) {
+    const posterTypeName = `PosterType_${typeInference.type_key}`;
+
+    typeRelations.push({
+      from: posterName,
+      to: posterTypeName,
+      relationType: 'HAS_TYPE',
+      confidence: typeInference.confidence,
+      metadata: {
+        createdAt: now,
+        updatedAt: now,
+        source: typeInference.source,
+        evidence: typeInference.evidence || '',
+        inferred_by: 'PosterProcessor',
+        inferred_at: new Date().toISOString(),
+        is_primary: typeInference.is_primary
+      }
+    });
+  }
+
+  if (typeRelations.length > 0) {
+    try {
+      await knowledgeGraphManager.createRelations(typeRelations);
+      logger.debug(`Created ${typeRelations.length} HAS_TYPE relationships for ${posterName}`);
+    } catch (e) {
+      logger.warn(`Error creating HAS_TYPE relationships for ${posterName}:`, e);
+    }
+  }
 }

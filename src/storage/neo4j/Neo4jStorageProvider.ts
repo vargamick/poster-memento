@@ -463,6 +463,19 @@ export class Neo4jStorageProvider implements StorageProvider {
   }
 
   /**
+   * Execute a raw Cypher query (public method for custom queries)
+   * @param query The Cypher query to execute
+   * @param parameters Query parameters
+   * @returns Query result with records
+   */
+  async runCypher(
+    query: string,
+    parameters: Record<string, unknown> = {}
+  ): Promise<{ records: any[] }> {
+    return this.executeValidatedQuery(query, parameters, 'runCypher');
+  }
+
+  /**
    * Convert a Neo4j node to an entity object
    * @param node Neo4j node properties
    * @returns Entity object

@@ -71,10 +71,24 @@ export interface StoredImage {
   mimeType: string;
 }
 
+/**
+ * Type inference result from processing
+ */
+export interface TypeInference {
+  type_key: string;
+  confidence: number;
+  source: 'vision' | 'musicbrainz' | 'discogs' | 'tmdb' | 'internal';
+  evidence?: string;
+  is_primary: boolean;
+}
+
 export interface PosterEntity {
   name: string;
   entityType: 'Poster';
+  /** @deprecated Use inferred_types and HAS_TYPE relationships instead */
   poster_type?: 'concert' | 'festival' | 'comedy' | 'theater' | 'film' | 'release' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
+  /** New type inference system - creates HAS_TYPE relationships */
+  inferred_types?: TypeInference[];
   title?: string;
   headliner?: string;
   supporting_acts?: string[];

@@ -6,6 +6,8 @@
  */
 
 import { Router } from 'express';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import { asyncHandler, ValidationError, NotFoundError } from '../middleware/errorHandler.js';
 import { handleScanPosters, ScanPostersArgs } from '../../server/handlers/toolHandlers/scanPosters.js';
 import {
@@ -16,8 +18,10 @@ import {
 } from '../../server/handlers/toolHandlers/processPosterBatch.js';
 import { createPosterProcessor, PosterProcessor } from '../../image-processor/PosterProcessor.js';
 import { VisionModelFactory } from '../../image-processor/VisionModelFactory.js';
-import { KnowledgeGraphManager } from '../../KnowledgeGraphManager.js';
+import { KnowledgeGraphManager, type Relation } from '../../KnowledgeGraphManager.js';
 import { logger } from '../../utils/logger.js';
+import { ensurePosterTypesSeeded } from '../../utils/ensurePosterTypes.js';
+import type { TypeInference } from '../../image-processor/types.js';
 
 // Cache processor instance
 let processorInstance: PosterProcessor | null = null;
@@ -65,6 +69,70 @@ export function createPosterRoutes(knowledgeGraphManager: KnowledgeGraphManager)
     }
 
     res.json({ data: result });
+  }));
+
+  /**
+   * GET /posters/directories - List directories for folder browser
+   *
+   * @query path - Path to list directories from (default: cwd or SOURCE_IMAGES_PATH parent)
+   */
+  router.get('/directories', asyncHandler(async (req, res) => {
+    let requestedPath = req.query.path as string | undefined;
+
+    // Default to parent of SOURCE_IMAGES_PATH or current working directory
+    if (!requestedPath) {
+      const sourceImagesPath = process.env.SOURCE_IMAGES_PATH || './SourceImages';
+      requestedPath = path.dirname(path.resolve(sourceImagesPath));
+    }
+
+    // Resolve and normalize the path
+    const resolvedPath = path.resolve(requestedPath);
+
+    try {
+      const stat = await fs.stat(resolvedPath);
+      if (!stat.isDirectory()) {
+        throw new ValidationError('Path is not a directory');
+      }
+
+      const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
+
+      // Get directories only, sorted alphabetically
+      const directories = entries
+        .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
+        .map(entry => ({
+          name: entry.name,
+          path: path.join(resolvedPath, entry.name)
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      // Count images in current directory
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'];
+      const imageCount = entries.filter(entry =>
+        entry.isFile() && imageExtensions.some(ext => entry.name.toLowerCase().endsWith(ext))
+      ).length;
+
+      // Get parent directory (if not at root)
+      const parentPath = path.dirname(resolvedPath);
+      const hasParent = parentPath !== resolvedPath;
+
+      res.json({
+        data: {
+          success: true,
+          currentPath: resolvedPath,
+          parentPath: hasParent ? parentPath : null,
+          directories,
+          imageCount
+        }
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new NotFoundError(`Directory not found: ${resolvedPath}`);
+      }
+      if ((error as NodeJS.ErrnoException).code === 'EACCES') {
+        throw new ValidationError(`Permission denied: ${resolvedPath}`);
+      }
+      throw error;
+    }
   }));
 
   /**
@@ -229,6 +297,37 @@ export function createPosterRoutes(knowledgeGraphManager: KnowledgeGraphManager)
         await knowledgeGraphManager.createRelations(relations);
       }
 
+      // Create HAS_TYPE relationships for inferred types
+      let typeRelationsCreated = 0;
+      if (entity.inferred_types && entity.inferred_types.length > 0) {
+        // Ensure PosterType entities exist
+        await ensurePosterTypesSeeded(knowledgeGraphManager);
+
+        const now = Date.now();
+        const typeRelations: Relation[] = entity.inferred_types.map((typeInference: TypeInference) => ({
+          from: entity.name,
+          to: `PosterType_${typeInference.type_key}`,
+          relationType: 'HAS_TYPE',
+          confidence: typeInference.confidence,
+          metadata: {
+            createdAt: now,
+            updatedAt: now,
+            source: typeInference.source,
+            evidence: typeInference.evidence || '',
+            inferred_by: 'commit_endpoint',
+            inferred_at: new Date().toISOString(),
+            is_primary: typeInference.is_primary
+          }
+        }));
+
+        try {
+          await knowledgeGraphManager.createRelations(typeRelations);
+          typeRelationsCreated = typeRelations.length;
+        } catch (e) {
+          logger.warn('Error creating HAS_TYPE relationships:', e);
+        }
+      }
+
       // Optionally store the image
       if (storeImage && entity.metadata?.source_image_url) {
         // Image storage is handled by the processor during full processing
@@ -240,7 +339,8 @@ export function createPosterRoutes(knowledgeGraphManager: KnowledgeGraphManager)
         data: {
           success: true,
           entityName: entity.name,
-          relationsCreated: relations.length
+          relationsCreated: relations.length,
+          typeRelationsCreated
         }
       });
     } catch (error) {

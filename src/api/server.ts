@@ -162,8 +162,8 @@ export function createApiServer(
   // Mount API routes
   const apiV1 = express.Router();
   
-  // Entity routes
-  apiV1.use('/entities', createEntityRoutes(entityService));
+  // Entity routes (pass storageProvider for Poster type enrichment)
+  apiV1.use('/entities', createEntityRoutes(entityService, dependencies.storageProvider));
   
   // Relation routes
   apiV1.use('/relations', createRelationRoutes(relationService));

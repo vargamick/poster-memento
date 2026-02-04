@@ -28,7 +28,9 @@
     "docker:down": "cd docker && docker compose down",
     "docker:logs": "cd docker && docker compose logs -f",
     "docker:clean": "cd docker && docker compose down -v",
-    "ollama:pull": "docker exec poster-ollama ollama pull minicpm-v"
+    "ollama:pull": "docker exec poster-ollama ollama pull minicpm-v",
+    "seed:poster-types": "tsx scripts/seed-poster-types.ts",
+    "migrate:poster-types": "tsx scripts/migrate-poster-types.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.937.0",

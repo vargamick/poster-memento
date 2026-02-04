@@ -66,6 +66,13 @@
       "description": "A record label, promoter, sponsor, or other organization",
       "required_fields": ["name", "entityType"],
       "optional_fields": ["display_name", "org_type", "website"]
+    },
+    {
+      "name": "PosterType",
+      "description": "Classification category for poster content (concert, release, festival, etc.)",
+      "required_fields": ["name", "entityType", "type_key"],
+      "optional_fields": ["display_name", "description", "detection_hints"],
+      "type_key_enum": ["concert", "festival", "comedy", "theater", "film", "release", "promo", "exhibition", "unknown"]
     }
   ],
 
@@ -162,6 +169,21 @@
       "from_entity_types": ["Release"],
       "to_entity_types": ["Artist"],
       "cardinality": "many-to-many"
+    },
+    {
+      "name": "HAS_TYPE",
+      "description": "Poster is classified as this type (concert, release, festival, etc.)",
+      "from_entity_types": ["Poster"],
+      "to_entity_types": ["PosterType"],
+      "cardinality": "one-to-many",
+      "metadata_schema": {
+        "confidence": "number",
+        "source": "string",
+        "evidence": "string",
+        "inferred_by": "string",
+        "inferred_at": "string",
+        "is_primary": "boolean"
+      }
     }
   ],
 

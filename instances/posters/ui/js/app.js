@@ -337,23 +337,58 @@ class PosterApp {
   }
 
   /**
-   * Get effective poster type from various sources
+   * Get poster type from HAS_TYPE relationships only.
+   * No fallbacks - if typeRelationships is missing, returns null to surface the issue.
    */
   getPosterType(poster) {
-    // Direct field
-    if (poster.poster_type && poster.poster_type !== 'unknown') {
-      return poster.poster_type;
+    const typeRelation = this.getPrimaryTypeRelation(poster);
+    if (typeRelation?.typeKey) {
+      return typeRelation.typeKey;
     }
-    // Metadata
-    if (poster.metadata?.poster_type && poster.metadata.poster_type !== 'unknown') {
-      return poster.metadata.poster_type;
+    // No fallbacks - return null to make missing data visible
+    return null;
+  }
+
+  /**
+   * Get the primary type relation from HAS_TYPE relationships
+   */
+  getPrimaryTypeRelation(poster) {
+    const typeRelations = poster.typeRelationships || poster.type_relationships || [];
+
+    // Find primary type, or first type if no primary set
+    const primary = typeRelations.find(r => r.isPrimary || r.is_primary);
+    if (primary) {
+      return {
+        typeKey: primary.typeKey || primary.type_key,
+        confidence: primary.confidence || 1.0,
+        source: primary.source || 'unknown',
+        isPrimary: true
+      };
     }
-    // Parse from observations
-    const parsed = this.parseObservations(poster);
-    if (parsed.poster_type && parsed.poster_type !== 'unknown') {
-      return parsed.poster_type.toLowerCase();
+
+    if (typeRelations.length > 0) {
+      const first = typeRelations[0];
+      return {
+        typeKey: first.typeKey || first.type_key,
+        confidence: first.confidence || 1.0,
+        source: first.source || 'unknown',
+        isPrimary: false
+      };
     }
-    return 'unknown';
+
+    return null;
+  }
+
+  /**
+   * Get all type relations for a poster
+   */
+  getAllTypeRelations(poster) {
+    return (poster.typeRelationships || poster.type_relationships || []).map(r => ({
+      typeKey: r.typeKey || r.type_key,
+      confidence: r.confidence || 1.0,
+      source: r.source || 'unknown',
+      isPrimary: r.isPrimary || r.is_primary || false
+    }));
   }
 
   /**
@@ -573,7 +608,7 @@ class PosterApp {
       <tr data-index="${index}">
         <td class="td-thumbnail">${thumbnailHtml}</td>
         <td class="td-name">${nameHtml}</td>
-        <td><span class="type-badge ${posterType}">${this.escapeHtml(posterType)}</span></td>
+        <td><span class="type-badge ${posterType || 'missing'}">${posterType ? this.escapeHtml(posterType) : 'MISSING TYPE'}</span></td>
         <td class="artists-cell">${displayInfo.peopleHtml}</td>
         <td>${this.escapeHtml(venueName)}</td>
         <td>${this.escapeHtml(eventDate)}</td>
@@ -600,7 +635,7 @@ class PosterApp {
     }
 
     // Build people/artists based on poster type
-    switch (posterType.toLowerCase()) {
+    switch ((posterType || 'unknown').toLowerCase()) {
       case 'film':
       case 'movie':
         // Film posters show director/cast instead of artists
@@ -814,9 +849,32 @@ class PosterApp {
     const performers = relations.filter(r => r.relationType === 'PERFORMED_ON' || r.relationType === 'FEATURES_ARTIST');
     const venues = relations.filter(r => r.relationType === 'ADVERTISES_VENUE');
     const events = relations.filter(r => r.relationType === 'ADVERTISES_EVENT');
+    const typeRelations = relations.filter(r => r.relationType === 'HAS_TYPE');
     const otherRelations = relations.filter(r =>
-      !['HEADLINED_ON', 'PERFORMED_ON', 'FEATURES_ARTIST', 'ADVERTISES_VENUE', 'ADVERTISES_EVENT'].includes(r.relationType)
+      !['HEADLINED_ON', 'PERFORMED_ON', 'FEATURES_ARTIST', 'ADVERTISES_VENUE', 'ADVERTISES_EVENT', 'HAS_TYPE'].includes(r.relationType)
     );
+
+    // Build type badge with confidence - no fallbacks
+    const typeRelation = this.getPrimaryTypeRelation(poster);
+    const allTypes = this.getAllTypeRelations(poster);
+    let typeBadgeHtml;
+    if (posterType) {
+      typeBadgeHtml = `<span class="type-badge ${posterType}">${this.escapeHtml(posterType)}</span>`;
+      if (typeRelation?.confidence && typeRelation.confidence < 1.0) {
+        const confidencePercent = Math.round(typeRelation.confidence * 100);
+        typeBadgeHtml += ` <span class="confidence-badge" title="Confidence: ${confidencePercent}% (${typeRelation.source})">${confidencePercent}%</span>`;
+      }
+      // Show additional types if poster has multiple
+      if (allTypes.length > 1) {
+        const secondaryTypes = allTypes.filter(t => !t.isPrimary);
+        for (const t of secondaryTypes) {
+          const conf = Math.round(t.confidence * 100);
+          typeBadgeHtml += ` <span class="type-badge secondary ${t.typeKey}" title="Secondary type: ${conf}% confidence">${this.escapeHtml(t.typeKey)}</span>`;
+        }
+      }
+    } else {
+      typeBadgeHtml = `<span class="type-badge missing">MISSING TYPE - No HAS_TYPE relationship found</span>`;
+    }
 
     // Build visual elements section
     let visualHtml = '';
@@ -862,7 +920,7 @@ class PosterApp {
         ${imageUrl ? `<img src="${this.escapeHtml(imageUrl)}" alt="${this.escapeHtml(name)}" class="detail-image" style="max-width: 200px; max-height: 200px; object-fit: contain; margin-bottom: 15px; border-radius: var(--radius); cursor: pointer;" onclick="window.posterApp.openLightbox(${JSON.stringify(poster).replace(/"/g, '&quot;')})">` : ''}
         <h2>${this.escapeHtml(this.formatPosterName(name))}</h2>
         <span class="detail-type">${this.escapeHtml(entityType)}</span>
-        <span class="type-badge ${posterType}" style="margin-left: 8px;">${this.escapeHtml(posterType)}</span>
+        <span style="margin-left: 8px;">${typeBadgeHtml}</span>
       </div>
 
       ${visualHtml}

@@ -1,0 +1,78 @@
+{
+  "description": "Seed data for PosterType entities",
+  "version": "1.0.0",
+  "entities": [
+    {
+      "name": "PosterType_concert",
+      "entityType": "PosterType",
+      "type_key": "concert",
+      "display_name": "Concert",
+      "description": "Single artist/band live performance at a venue",
+      "detection_hints": ["live", "show", "performance", "tour", "tickets", "doors"]
+    },
+    {
+      "name": "PosterType_festival",
+      "entityType": "PosterType",
+      "type_key": "festival",
+      "display_name": "Festival",
+      "description": "Multi-act music festival",
+      "detection_hints": ["festival", "fest", "day 1", "day 2", "multiple stages", "lineup"]
+    },
+    {
+      "name": "PosterType_comedy",
+      "entityType": "PosterType",
+      "type_key": "comedy",
+      "display_name": "Comedy",
+      "description": "Comedy show or standup performance",
+      "detection_hints": ["comedy", "standup", "stand-up", "comedian", "funny", "laughs"]
+    },
+    {
+      "name": "PosterType_theater",
+      "entityType": "PosterType",
+      "type_key": "theater",
+      "display_name": "Theater",
+      "description": "Theatrical production or play",
+      "detection_hints": ["theater", "theatre", "play", "musical", "production", "broadway"]
+    },
+    {
+      "name": "PosterType_film",
+      "entityType": "PosterType",
+      "type_key": "film",
+      "display_name": "Film",
+      "description": "Movie or film screening",
+      "detection_hints": ["film", "movie", "cinema", "screening", "premiere", "directed by"]
+    },
+    {
+      "name": "PosterType_release",
+      "entityType": "PosterType",
+      "type_key": "release",
+      "display_name": "Release",
+      "description": "Album, single, EP, or music release promo",
+      "detection_hints": ["album", "out now", "new release", "available", "streaming", "pre-order", "tracklist"]
+    },
+    {
+      "name": "PosterType_promo",
+      "entityType": "PosterType",
+      "type_key": "promo",
+      "display_name": "Promo",
+      "description": "General promotional/advertising",
+      "detection_hints": ["promo", "advertisement", "sponsored", "brand"]
+    },
+    {
+      "name": "PosterType_exhibition",
+      "entityType": "PosterType",
+      "type_key": "exhibition",
+      "display_name": "Exhibition",
+      "description": "Art exhibition, gallery, or museum",
+      "detection_hints": ["exhibition", "gallery", "museum", "art show", "exhibit", "opening"]
+    },
+    {
+      "name": "PosterType_unknown",
+      "entityType": "PosterType",
+      "type_key": "unknown",
+      "display_name": "Unknown",
+      "description": "Type could not be determined",
+      "detection_hints": []
+    }
+  ]
+}

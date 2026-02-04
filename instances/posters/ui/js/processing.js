@@ -18,6 +18,11 @@ export class ProcessingManager {
     this.currentPreviewEntity = null;
     this.processingAborted = false;
 
+    // Folder browser state
+    this.folderBrowserCurrentPath = null;
+    this.folderBrowserParentPath = null;
+    this.folderBrowserDirectories = [];
+
     this.elements = {};
     this.initialized = false;
   }
@@ -43,10 +48,25 @@ export class ProcessingManager {
     this.elements = {
       // Source section
       sourcePath: document.getElementById('source-path'),
+      browseBtn: document.getElementById('browse-btn'),
       scanBtn: document.getElementById('scan-btn'),
       refreshBtn: document.getElementById('refresh-btn'),
       totalImages: document.getElementById('total-images'),
       unprocessedCount: document.getElementById('unprocessed-count'),
+
+      // Folder browser modal
+      folderBrowserModal: document.getElementById('folder-browser-modal'),
+      folderBrowserClose: document.getElementById('folder-browser-close'),
+      folderBrowserCurrentPath: document.getElementById('folder-browser-current-path'),
+      folderBrowserUpBtn: document.getElementById('folder-browser-up-btn'),
+      folderBrowserHomeBtn: document.getElementById('folder-browser-home-btn'),
+      folderBrowserLoading: document.getElementById('folder-browser-loading'),
+      folderBrowserError: document.getElementById('folder-browser-error'),
+      folderBrowserErrorMessage: document.getElementById('folder-browser-error-message'),
+      folderBrowserList: document.getElementById('folder-browser-list'),
+      folderBrowserImageCount: document.getElementById('folder-browser-image-count'),
+      folderBrowserSelectBtn: document.getElementById('folder-browser-select-btn'),
+      folderBrowserCancelBtn: document.getElementById('folder-browser-cancel-btn'),
 
       // Config section
       modelSelect: document.getElementById('model-select'),
@@ -98,8 +118,21 @@ export class ProcessingManager {
    */
   bindEvents() {
     // Source controls
+    this.elements.browseBtn?.addEventListener('click', () => this.openFolderBrowser());
     this.elements.scanBtn?.addEventListener('click', () => this.scanFolder());
     this.elements.refreshBtn?.addEventListener('click', () => this.scanFolder());
+
+    // Folder browser modal
+    this.elements.folderBrowserClose?.addEventListener('click', () => this.closeFolderBrowser());
+    this.elements.folderBrowserCancelBtn?.addEventListener('click', () => this.closeFolderBrowser());
+    this.elements.folderBrowserSelectBtn?.addEventListener('click', () => this.selectFolder());
+    this.elements.folderBrowserUpBtn?.addEventListener('click', () => this.navigateToParent());
+    this.elements.folderBrowserHomeBtn?.addEventListener('click', () => this.navigateToHome());
+    this.elements.folderBrowserModal?.addEventListener('click', (e) => {
+      if (e.target === this.elements.folderBrowserModal) this.closeFolderBrowser();
+    });
+    this.elements.folderBrowserList?.addEventListener('click', (e) => this.handleFolderClick(e));
+    this.elements.folderBrowserList?.addEventListener('dblclick', (e) => this.handleFolderDoubleClick(e));
 
     // File selection
     this.elements.selectAllBtn?.addEventListener('click', () => this.selectAll());
@@ -667,6 +700,180 @@ export class ProcessingManager {
     if (!dateStr) return '';
     const date = new Date(dateStr);
     return date.toLocaleDateString();
+  }
+
+  /**
+   * Open folder browser modal
+   */
+  async openFolderBrowser() {
+    this.elements.folderBrowserModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+
+    // Load directories starting from current source path or default
+    const currentPath = this.elements.sourcePath?.value || './SourceImages';
+    await this.loadDirectories(currentPath);
+  }
+
+  /**
+   * Close folder browser modal
+   */
+  closeFolderBrowser() {
+    this.elements.folderBrowserModal.classList.add('hidden');
+    document.body.style.overflow = '';
+  }
+
+  /**
+   * Load directories for the folder browser
+   */
+  async loadDirectories(path = null) {
+    this.showFolderBrowserLoading(true);
+    this.hideFolderBrowserError();
+
+    try {
+      const params = path ? `?path=${encodeURIComponent(path)}` : '';
+      const response = await fetch(`/api/v1/posters/directories${params}`, {
+        headers: {
+          'X-API-Key': 'posters-api-key-2024'
+        }
+      });
+      const result = await response.json();
+
+      if (!response.ok || !result.data?.success) {
+        throw new Error(result.error || result.data?.error || 'Failed to load directories');
+      }
+
+      this.folderBrowserCurrentPath = result.data.currentPath;
+      this.folderBrowserParentPath = result.data.parentPath;
+      this.folderBrowserDirectories = result.data.directories || [];
+
+      this.renderFolderBrowserList();
+      this.updateFolderBrowserUI(result.data);
+    } catch (error) {
+      console.error('Failed to load directories:', error);
+      this.showFolderBrowserError(error.message);
+    } finally {
+      this.showFolderBrowserLoading(false);
+    }
+  }
+
+  /**
+   * Render the folder browser list
+   */
+  renderFolderBrowserList() {
+    if (this.folderBrowserDirectories.length === 0) {
+      this.elements.folderBrowserList.innerHTML = `
+        <div class="folder-browser-list-empty">
+          <p>No subdirectories found</p>
+        </div>
+      `;
+      return;
+    }
+
+    this.elements.folderBrowserList.innerHTML = this.folderBrowserDirectories.map(dir => `
+      <div class="folder-item" data-path="${this.escapeHtml(dir.path)}">
+        <span class="folder-icon">📁</span>
+        <span class="folder-name">${this.escapeHtml(dir.name)}</span>
+        <span class="folder-enter">→</span>
+      </div>
+    `).join('');
+  }
+
+  /**
+   * Update folder browser UI elements
+   */
+  updateFolderBrowserUI(data) {
+    // Update current path display
+    this.elements.folderBrowserCurrentPath.textContent = data.currentPath;
+    this.elements.folderBrowserCurrentPath.title = data.currentPath;
+
+    // Update parent button state
+    this.elements.folderBrowserUpBtn.disabled = !data.parentPath;
+
+    // Update image count
+    const imageCount = data.imageCount || 0;
+    this.elements.folderBrowserImageCount.textContent = `${imageCount} image${imageCount !== 1 ? 's' : ''} in this folder`;
+  }
+
+  /**
+   * Handle click on folder item (single click to select)
+   */
+  handleFolderClick(e) {
+    const folderItem = e.target.closest('.folder-item');
+    if (!folderItem) return;
+
+    // Remove selection from other items
+    this.elements.folderBrowserList.querySelectorAll('.folder-item').forEach(item => {
+      item.classList.remove('selected');
+    });
+
+    // Select this item
+    folderItem.classList.add('selected');
+  }
+
+  /**
+   * Handle double-click on folder item (navigate into)
+   */
+  handleFolderDoubleClick(e) {
+    const folderItem = e.target.closest('.folder-item');
+    if (!folderItem) return;
+
+    const path = folderItem.dataset.path;
+    if (path) {
+      this.loadDirectories(path);
+    }
+  }
+
+  /**
+   * Navigate to parent directory
+   */
+  navigateToParent() {
+    if (this.folderBrowserParentPath) {
+      this.loadDirectories(this.folderBrowserParentPath);
+    }
+  }
+
+  /**
+   * Navigate to home/default directory
+   */
+  navigateToHome() {
+    this.loadDirectories(null); // null will use the default path
+  }
+
+  /**
+   * Select the current folder
+   */
+  selectFolder() {
+    if (this.folderBrowserCurrentPath) {
+      this.elements.sourcePath.value = this.folderBrowserCurrentPath;
+      this.closeFolderBrowser();
+
+      // Auto-scan after selecting
+      this.scanFolder();
+    }
+  }
+
+  /**
+   * Show/hide folder browser loading state
+   */
+  showFolderBrowserLoading(show) {
+    this.elements.folderBrowserLoading.classList.toggle('hidden', !show);
+    this.elements.folderBrowserList.classList.toggle('hidden', show);
+  }
+
+  /**
+   * Show folder browser error
+   */
+  showFolderBrowserError(message) {
+    this.elements.folderBrowserError.classList.remove('hidden');
+    this.elements.folderBrowserErrorMessage.textContent = message;
+    this.elements.folderBrowserList.classList.add('hidden');
+  }
+
+  /**
+   * Hide folder browser error
+   */
+  hideFolderBrowserError() {
+    this.elements.folderBrowserError.classList.add('hidden');
   }
 
   /**

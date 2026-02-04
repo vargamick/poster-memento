@@ -9,7 +9,7 @@
  */
 
 import { PosterEntity } from '../../image-processor/types.js';
-import { ValidatorResult, ValidationContext, PosterType } from '../types.js';
+import { ValidatorResult, ValidationContext, PosterType, QARelationshipSuggestion } from '../types.js';
 import { BaseValidator } from './BaseValidator.js';
 import { MusicBrainzClient } from '../clients/MusicBrainzClient.js';
 import { DiscogsClient } from '../clients/DiscogsClient.js';
@@ -50,12 +50,31 @@ interface TypeInferenceResult {
 }
 
 /**
+ * Existing HAS_TYPE relationship info
+ */
+interface ExistingTypeRelationship {
+  typeKey: string;
+  confidence: number;
+  source: string;
+  isPrimary: boolean;
+}
+
+/**
+ * Extended validation result that includes relationship suggestions
+ */
+export interface PosterTypeValidationResult {
+  validatorResults: ValidatorResult[];
+  relationshipSuggestions: QARelationshipSuggestion[];
+}
+
+/**
  * Validates and infers poster_type using external data sources
+ * Now supports both property-based and relationship-based validation
  */
 export class PosterTypeValidator extends BaseValidator {
   readonly name = 'poster_type' as const;
   readonly supportedEntityTypes = ['Poster'];
-  readonly supportedFields = ['poster_type'];
+  readonly supportedFields = ['poster_type', 'HAS_TYPE'];
 
   private musicBrainz: MusicBrainzClient;
   private discogs: DiscogsClient | null;
@@ -149,6 +168,91 @@ export class PosterTypeValidator extends BaseValidator {
     }
 
     return results;
+  }
+
+  /**
+   * Validate poster type and generate relationship suggestions
+   * This is the new preferred method for graph-native validation
+   */
+  async validateWithRelationships(
+    entity: PosterEntity,
+    context: ValidationContext,
+    existingRelationships?: ExistingTypeRelationship[]
+  ): Promise<PosterTypeValidationResult> {
+    const validatorResults = await this.validate(entity, context);
+    const relationshipSuggestions: QARelationshipSuggestion[] = [];
+
+    // Get the current type from existing relationships or property
+    const existingTypes = existingRelationships || [];
+    const currentTypeFromProperty = entity.poster_type ?? 'unknown';
+    const currentTypeFromRelationship = existingTypes.find(r => r.isPrimary)?.typeKey;
+    const currentType = currentTypeFromRelationship || currentTypeFromProperty;
+
+    // Attempt to infer the correct poster type
+    const inference = await this.inferPosterType(entity);
+
+    if (inference) {
+      // Check if we need to suggest relationship changes
+      const targetPosterTypeName = `PosterType_${inference.inferredType}`;
+
+      if (existingTypes.length === 0) {
+        // No existing HAS_TYPE relationship - suggest creating one
+        if (inference.inferredType !== 'unknown') {
+          relationshipSuggestions.push({
+            operation: 'create',
+            relationType: 'HAS_TYPE',
+            fromEntity: entity.name,
+            toEntity: targetPosterTypeName,
+            suggestedMetadata: {
+              confidence: inference.confidence,
+              source: inference.source,
+              evidence: inference.evidence,
+              inferred_by: 'PosterTypeValidator',
+              is_primary: true,
+            },
+            reason: `Create HAS_TYPE relationship: ${inference.evidence}`,
+            externalId: inference.externalId,
+            externalUrl: inference.externalUrl,
+          });
+        }
+      } else if (currentType !== inference.inferredType) {
+        // Existing relationship doesn't match inferred type
+        const existingPrimary = existingTypes.find(r => r.isPrimary);
+
+        if (existingPrimary && inference.confidence > existingPrimary.confidence) {
+          // Higher confidence - suggest updating the existing relationship
+          const currentPosterTypeName = `PosterType_${existingPrimary.typeKey}`;
+
+          // Suggest deleting the old primary and creating a new one
+          relationshipSuggestions.push({
+            operation: 'update',
+            relationType: 'HAS_TYPE',
+            fromEntity: entity.name,
+            toEntity: targetPosterTypeName,
+            currentMetadata: {
+              typeKey: existingPrimary.typeKey,
+              confidence: existingPrimary.confidence,
+              source: existingPrimary.source,
+            },
+            suggestedMetadata: {
+              confidence: inference.confidence,
+              source: inference.source,
+              evidence: inference.evidence,
+              inferred_by: 'PosterTypeValidator',
+              is_primary: true,
+            },
+            reason: `Update type from "${existingPrimary.typeKey}" to "${inference.inferredType}" (higher confidence: ${(inference.confidence * 100).toFixed(0)}% vs ${(existingPrimary.confidence * 100).toFixed(0)}%) - ${inference.evidence}`,
+            externalId: inference.externalId,
+            externalUrl: inference.externalUrl,
+          });
+        }
+      }
+    }
+
+    return {
+      validatorResults,
+      relationshipSuggestions,
+    };
   }
 
   /**
