@@ -14,7 +14,7 @@
         "title", "visual_elements", "event_date", "event_year",
         "ticket_price", "tour_name", "promo_details", "metadata"
       ],
-      "poster_type_enum": ["event", "release", "promo", "exhibition", "hybrid", "unknown"],
+      "poster_type_enum": ["concert", "festival", "comedy", "theater", "film", "release", "promo", "exhibition", "hybrid", "unknown"],
       "visual_elements_schema": {
         "has_artist_photo": "boolean",
         "has_album_artwork": "boolean",

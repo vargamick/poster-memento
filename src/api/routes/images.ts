@@ -1,19 +1,25 @@
 /**
  * Image Routes
  *
- * Endpoints for retrieving presigned image URLs from MinIO storage.
+ * Endpoints for retrieving presigned image URLs from S3 or MinIO storage.
  */
 
 import { Router } from 'express';
 import { asyncHandler, ValidationError, NotFoundError } from '../middleware/errorHandler.js';
-import type { ImageStorageService } from '../../image-processor/ImageStorageService.js';
+import type { IImageStorageService } from '../../image-processor/imageStorageFactory.js';
 
 /**
  * Rewrite internal MinIO URLs to use the public endpoint
- * This is necessary when running in Docker where the internal endpoint
+ * This is only necessary when using MinIO in Docker where the internal endpoint
  * (e.g., minio:9000) is not accessible from the browser.
+ * S3 URLs are already correct and don't need rewriting.
  */
 function rewriteMinioUrl(url: string): string {
+  // S3 URLs don't need rewriting
+  if (url.includes('.amazonaws.com') || url.includes('.s3.')) {
+    return url;
+  }
+
   const publicUrl = process.env.MINIO_PUBLIC_URL;
   if (!publicUrl) {
     return url;
@@ -34,7 +40,7 @@ function rewriteMinioUrl(url: string): string {
 /**
  * Create image routes
  */
-export function createImageRoutes(imageStorage: ImageStorageService): Router {
+export function createImageRoutes(imageStorage: IImageStorageService): Router {
   const router = Router();
 
   /**

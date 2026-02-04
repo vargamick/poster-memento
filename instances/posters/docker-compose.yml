@@ -155,13 +155,22 @@ services:
       - PGPASSWORD=posters_password
       - PGDATABASE=posters
 
-      # MinIO Connection (internal Docker network)
+      # MinIO Connection (internal Docker network) - used as fallback if S3 not configured
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=posters
       - MINIO_SECRET_KEY=posters_password
       - MINIO_BUCKET=poster-images
       # Public URL for browser access to presigned URLs
       - MINIO_PUBLIC_URL=http://localhost:9010
+
+      # AWS S3 Configuration (for image storage with presigned URLs)
+      # When configured, S3 takes priority over MinIO
+      # Set these in your .env file
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_REGION=${AWS_REGION:-ap-southeast-2}
+      - S3_BUCKET=${S3_BUCKET:-poster-memento-images}
+      - S3_PRESIGNED_URL_EXPIRY=3600
 
       # Instance Configuration
       - CONFIG_PATH=/app/config/instance-config.json
@@ -174,6 +183,10 @@ services:
       # - VOYAGE_API_KEY=your-voyage-api-key
       # - VOYAGE_EMBEDDING_MODEL=voyage-3
       # - EMBEDDING_DIMENSIONS=1024
+
+      # QA Validation API Keys
+      - DISCOGS_TOKEN=${DISCOGS_TOKEN:-}
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
     volumes:
       # Mount source images directory for processing
       - ./SourceImages:/app/source-images:ro

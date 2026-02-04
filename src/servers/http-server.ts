@@ -30,12 +30,15 @@ import { errorHandler } from '../api/middleware/errorHandler.js';
 import { requestLogger } from '../api/middleware/requestLogger.js';
 import { createAdminRoutes } from '../api/routes/admin.js';
 import { createImageRoutes } from '../api/routes/images.js';
-import { createImageStorageFromEnv } from '../image-processor/ImageStorageService.js';
+import { createImageStorageService, getStorageType } from '../image-processor/imageStorageFactory.js';
 import {
   createAdminServiceFromEnv,
   createS3ServiceFromEnv,
   createProcessingServiceFromEnv
 } from '../services/index.js';
+import { createPosterRoutes } from '../api/routes/posters.js';
+import { createQAValidationRoutes } from '../api/routes/qa-validation.js';
+import { QAValidationService } from '../qa-validation/QAValidationService.js';
 
 // Authentication middleware
 const authenticateApiKey = (
@@ -445,12 +448,13 @@ apiV1.use('/temporal', createTemporalRoutes(storageProvider));
 // Expertise area routes
 apiV1.use('/expertise-areas', createExpertiseRoutes(entityService));
 
-// Image routes (for presigned URLs from MinIO)
-if (process.env.MINIO_ENDPOINT || process.env.IMAGE_STORAGE_ENABLED !== 'false') {
+// Image routes (for presigned URLs from S3 or MinIO)
+if (process.env.S3_BUCKET || process.env.MINIO_ENDPOINT || process.env.IMAGE_STORAGE_ENABLED !== 'false') {
   try {
-    const imageStorage = createImageStorageFromEnv();
+    const imageStorage = createImageStorageService();
+    const storageType = getStorageType();
     apiV1.use('/images', createImageRoutes(imageStorage));
-    logger.info('Image routes enabled at /api/v1/images');
+    logger.info(`Image routes enabled at /api/v1/images (using ${storageType})`);
   } catch (error: any) {
     logger.warn('Image routes not initialized', { error: error.message });
   }
@@ -466,6 +470,31 @@ if (process.env.ADMIN_ENABLED !== 'false') {
     logger.info('Admin routes enabled at /api/v1/admin');
   } catch (error: any) {
     logger.warn('Admin routes not initialized', { error: error.message });
+  }
+}
+
+// Poster processing routes (for poster image processing UI)
+if (process.env.POSTER_PROCESSING_ENABLED !== 'false' && knowledgeGraphManager) {
+  try {
+    apiV1.use('/posters', createPosterRoutes(knowledgeGraphManager));
+    logger.info('Poster processing routes enabled at /api/v1/posters');
+  } catch (error: any) {
+    logger.warn('Poster processing routes not initialized', { error: error.message });
+  }
+}
+
+// QA Validation routes (for validating processed poster data)
+if (process.env.QA_VALIDATION_ENABLED !== 'false') {
+  try {
+    const qaService = new QAValidationService({
+      entityService,
+      discogsToken: process.env.DISCOGS_TOKEN,
+      tmdbApiKey: process.env.TMDB_API_KEY,
+    });
+    apiV1.use('/qa-validation', createQAValidationRoutes(qaService));
+    logger.info('QA Validation routes enabled at /api/v1/qa-validation');
+  } catch (error: any) {
+    logger.warn('QA Validation routes not initialized', { error: error.message });
   }
 }
 

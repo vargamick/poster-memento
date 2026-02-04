@@ -1,0 +1,638 @@
+/**
+ * QA Validation Service
+ *
+ * Orchestrates the QA validation process for poster entities.
+ * Manages validation jobs, coordinates validators, and generates reports.
+ */
+
+import { EntityService } from '../core/services/EntityService.js';
+import { PosterEntity } from '../image-processor/types.js';
+import {
+  QAValidationConfig,
+  QAValidationResult,
+  QAJobStatus,
+  QAJobPhase,
+  QAJobStats,
+  QAReport,
+  QAReportSummary,
+  QASuggestion,
+  ValidatorResult,
+  ValidatorName,
+  ValidationContext,
+  DEFAULT_QA_CONFIG,
+  EntityTypeSummary,
+} from './types.js';
+import { BaseValidator } from './validators/BaseValidator.js';
+import { ArtistValidator } from './validators/ArtistValidator.js';
+import { VenueValidator } from './validators/VenueValidator.js';
+import { DateValidator } from './validators/DateValidator.js';
+import { ReleaseValidator } from './validators/ReleaseValidator.js';
+import { PosterTypeValidator } from './validators/PosterTypeValidator.js';
+import { MusicBrainzClient } from './clients/MusicBrainzClient.js';
+import { DiscogsClient } from './clients/DiscogsClient.js';
+import { TMDBClient } from './clients/TMDBClient.js';
+import {
+  calculateOverallScore,
+  determineOverallStatus,
+  calculateBatchStatistics,
+  identifyTopIssues,
+  generateRecommendations,
+} from './utils/confidenceScoring.js';
+
+/**
+ * Configuration for the QA Validation Service
+ */
+export interface QAServiceDependencies {
+  entityService: EntityService;
+  discogsToken?: string;
+  tmdbApiKey?: string;
+}
+
+/**
+ * Generate a unique job ID
+ */
+function generateJobId(): string {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 8);
+  return `qa_${timestamp}_${random}`;
+}
+
+/**
+ * Generate a unique report ID
+ */
+function generateReportId(): string {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 8);
+  return `report_${timestamp}_${random}`;
+}
+
+/**
+ * QA Validation Service
+ */
+export class QAValidationService {
+  private entityService: EntityService;
+  private validators: Map<ValidatorName, BaseValidator>;
+  private jobs: Map<string, QAJobStatus>;
+  private reports: Map<string, QAReport>;
+  private runningJobs: Set<string>;
+
+  constructor(dependencies: QAServiceDependencies) {
+    this.entityService = dependencies.entityService;
+    this.jobs = new Map();
+    this.reports = new Map();
+    this.runningJobs = new Set();
+
+    // Initialize validators
+    this.validators = this.initializeValidators(dependencies);
+  }
+
+  /**
+   * Initialize all validators with their dependencies
+   */
+  private initializeValidators(dependencies: QAServiceDependencies): Map<ValidatorName, BaseValidator> {
+    const validators = new Map<ValidatorName, BaseValidator>();
+
+    // Create API clients
+    const musicBrainz = new MusicBrainzClient();
+
+    const discogs = dependencies.discogsToken
+      ? new DiscogsClient(dependencies.discogsToken)
+      : undefined;
+
+    const tmdb = dependencies.tmdbApiKey
+      ? new TMDBClient(dependencies.tmdbApiKey)
+      : undefined;
+
+    // Create validators
+    validators.set('artist', new ArtistValidator(musicBrainz, discogs));
+    validators.set('venue', new VenueValidator());
+    validators.set('date', new DateValidator());
+    validators.set('release', new ReleaseValidator(musicBrainz, discogs, tmdb));
+    validators.set('poster_type', new PosterTypeValidator(musicBrainz, discogs, tmdb));
+
+    return validators;
+  }
+
+  /**
+   * Start a new validation job
+   */
+  async startValidationJob(config: QAValidationConfig = {}): Promise<string> {
+    const jobId = generateJobId();
+    const mergedConfig = { ...DEFAULT_QA_CONFIG, ...config };
+
+    const jobStatus: QAJobStatus = {
+      jobId,
+      phase: 'pending',
+      progress: 0,
+      message: 'Job created, starting validation...',
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      config: mergedConfig,
+      stats: {
+        totalEntities: 0,
+        processedEntities: 0,
+        validatedCount: 0,
+        warningCount: 0,
+        mismatchCount: 0,
+        unverifiedCount: 0,
+        averageScore: 0,
+        apiCallsMade: 0,
+        errors: [],
+      },
+    };
+
+    this.jobs.set(jobId, jobStatus);
+
+    // Run validation asynchronously
+    this.runValidation(jobId, mergedConfig).catch(error => {
+      this.updateJobStatus(jobId, {
+        phase: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+
+    return jobId;
+  }
+
+  /**
+   * Get the status of a validation job
+   */
+  getJobStatus(jobId: string): QAJobStatus | null {
+    return this.jobs.get(jobId) ?? null;
+  }
+
+  /**
+   * Get all jobs
+   */
+  getAllJobs(): QAJobStatus[] {
+    return Array.from(this.jobs.values());
+  }
+
+  /**
+   * Cancel a running job
+   */
+  async cancelJob(jobId: string): Promise<boolean> {
+    const job = this.jobs.get(jobId);
+    if (!job) return false;
+
+    if (this.runningJobs.has(jobId)) {
+      this.runningJobs.delete(jobId);
+      this.updateJobStatus(jobId, {
+        phase: 'cancelled',
+        message: 'Job cancelled by user',
+      });
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Get a validation report
+   */
+  getReport(jobId: string): QAReport | null {
+    return this.reports.get(jobId) ?? null;
+  }
+
+  /**
+   * Validate a single entity (preview mode)
+   */
+  async validateSingleEntity(entityName: string): Promise<QAValidationResult | null> {
+    const entityResult = await this.entityService.getEntity(entityName);
+    if (!entityResult.success || !entityResult.data) {
+      return null;
+    }
+
+    const entity = entityResult.data as PosterEntity;
+    return this.validateEntity(entity, DEFAULT_QA_CONFIG);
+  }
+
+  /**
+   * Check health of external APIs
+   */
+  async checkExternalAPIHealth(): Promise<Record<string, boolean>> {
+    const health: Record<string, boolean> = {};
+
+    for (const [name, validator] of this.validators) {
+      try {
+        health[name] = await validator.healthCheck();
+      } catch {
+        health[name] = false;
+      }
+    }
+
+    return health;
+  }
+
+  /**
+   * Run the validation job
+   */
+  private async runValidation(
+    jobId: string,
+    config: QAValidationConfig
+  ): Promise<void> {
+    this.runningJobs.add(jobId);
+
+    try {
+      // Phase 1: Fetch entities
+      this.updateJobStatus(jobId, {
+        phase: 'fetching_entities',
+        message: 'Fetching entities to validate...',
+      });
+
+      const entities = await this.fetchEntitiesToValidate(config);
+
+      if (entities.length === 0) {
+        this.updateJobStatus(jobId, {
+          phase: 'completed',
+          message: 'No entities found to validate',
+          completedAt: new Date().toISOString(),
+        });
+        return;
+      }
+
+      this.updateJobStats(jobId, { totalEntities: entities.length });
+
+      // Phase 2-5: Run validators
+      const results: QAValidationResult[] = [];
+      const batchSize = config.batchSize ?? DEFAULT_QA_CONFIG.batchSize;
+      const delayBetweenBatches = config.delayBetweenBatches ?? DEFAULT_QA_CONFIG.delayBetweenBatches;
+
+      for (let i = 0; i < entities.length; i += batchSize) {
+        // Check if job was cancelled
+        if (!this.runningJobs.has(jobId)) {
+          return;
+        }
+
+        const batch = entities.slice(i, i + batchSize);
+        const batchNum = Math.floor(i / batchSize) + 1;
+        const totalBatches = Math.ceil(entities.length / batchSize);
+
+        this.updateJobStatus(jobId, {
+          phase: 'validating_artists',
+          message: `Processing batch ${batchNum}/${totalBatches}...`,
+          progress: Math.round((i / entities.length) * 100),
+        });
+
+        // Process batch
+        for (const entity of batch) {
+          if (!this.runningJobs.has(jobId)) return;
+
+          try {
+            const result = await this.validateEntity(entity, config);
+            results.push(result);
+
+            // Update stats
+            this.updateStatsFromResult(jobId, result);
+          } catch (error) {
+            const job = this.jobs.get(jobId);
+            if (job) {
+              job.stats.errors.push(
+                `Error validating ${entity.name}: ${error instanceof Error ? error.message : String(error)}`
+              );
+            }
+          }
+        }
+
+        // Rate limiting delay between batches
+        if (i + batchSize < entities.length) {
+          await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
+        }
+      }
+
+      // Phase 6: Generate report
+      this.updateJobStatus(jobId, {
+        phase: 'generating_report',
+        message: 'Generating validation report...',
+        progress: 95,
+      });
+
+      const report = this.generateReport(jobId, config, results);
+      this.reports.set(jobId, report);
+
+      // Complete
+      this.updateJobStatus(jobId, {
+        phase: 'completed',
+        message: `Validation complete. ${results.length} entities processed.`,
+        progress: 100,
+        completedAt: new Date().toISOString(),
+      });
+    } finally {
+      this.runningJobs.delete(jobId);
+    }
+  }
+
+  /**
+   * Fetch entities to validate based on config
+   */
+  private async fetchEntitiesToValidate(config: QAValidationConfig): Promise<PosterEntity[]> {
+    // If specific entity IDs provided, fetch those
+    if (config.entityIds && config.entityIds.length > 0) {
+      const entities: PosterEntity[] = [];
+      for (const id of config.entityIds) {
+        const result = await this.entityService.getEntity(id);
+        if (result.success && result.data) {
+          entities.push(result.data as PosterEntity);
+        }
+      }
+      return entities;
+    }
+
+    // Otherwise, search for entities matching criteria
+    const entityTypes = config.entityTypes ?? ['Poster'];
+    const entities: PosterEntity[] = [];
+
+    for (const entityType of entityTypes) {
+      // searchEntities takes a query string and options object
+      const searchResult = await this.entityService.searchEntities('', {
+        entityTypes: [entityType],
+        limit: 1000, // Adjust as needed
+      });
+
+      if (searchResult.success && searchResult.data) {
+        // searchResult.data is a KnowledgeGraph with entities array
+        const knowledgeGraph = searchResult.data;
+        for (const entity of knowledgeGraph.entities) {
+          const posterEntity = entity as PosterEntity;
+
+          // Filter by poster type if specified
+          if (
+            config.posterTypes &&
+            config.posterTypes.length > 0 &&
+            posterEntity.poster_type &&
+            !config.posterTypes.includes(posterEntity.poster_type)
+          ) {
+            continue;
+          }
+
+          entities.push(posterEntity);
+        }
+      }
+    }
+
+    return entities;
+  }
+
+  /**
+   * Validate a single entity using all applicable validators
+   */
+  private async validateEntity(
+    entity: PosterEntity,
+    config: QAValidationConfig
+  ): Promise<QAValidationResult> {
+    const startTime = Date.now();
+    const allResults: ValidatorResult[] = [];
+    const suggestions: QASuggestion[] = [];
+
+    const context: ValidationContext = {
+      config,
+      posterType: entity.poster_type,
+    };
+
+    // Determine which validators to run
+    const validatorsToRun = config.validators ?? DEFAULT_QA_CONFIG.validators;
+
+    // Run each validator
+    for (const validatorName of validatorsToRun) {
+      const validator = this.validators.get(validatorName);
+      if (!validator) continue;
+
+      // Check if validator supports this entity type
+      if (!validator.supportsEntityType(entity.entityType)) continue;
+
+      try {
+        const results = await validator.validate(entity, context);
+        allResults.push(...results);
+
+        // Extract suggestions from mismatches and partial matches
+        for (const result of results) {
+          if (
+            (result.status === 'mismatch' || result.status === 'partial') &&
+            result.validatedValue &&
+            result.validatedValue !== result.originalValue
+          ) {
+            suggestions.push({
+              field: result.field,
+              currentValue: result.originalValue,
+              suggestedValue: result.validatedValue,
+              reason: result.message ?? 'External source suggests different value',
+              confidence: result.confidence,
+              source: result.source,
+              externalId: result.externalId,
+            });
+          }
+        }
+      } catch (error) {
+        console.error(`Validator ${validatorName} failed for entity ${entity.name}:`, error);
+      }
+    }
+
+    // Calculate overall score and status
+    const overallScore = calculateOverallScore(allResults);
+    const status = determineOverallStatus(allResults);
+
+    // Extract external matches
+    const externalMatches = allResults
+      .filter(r => r.externalId && r.externalUrl)
+      .map(r => ({
+        source: r.source,
+        externalId: r.externalId!,
+        name: r.validatedValue ?? r.originalValue ?? '',
+        matchScore: r.confidence,
+        url: r.externalUrl!,
+      }));
+
+    return {
+      entityId: entity.name,
+      entityType: entity.entityType,
+      overallScore,
+      status,
+      validatedAt: new Date().toISOString(),
+      validatorResults: allResults,
+      suggestions,
+      externalMatches,
+      processingTimeMs: Date.now() - startTime,
+    };
+  }
+
+  /**
+   * Update job status
+   */
+  private updateJobStatus(
+    jobId: string,
+    updates: Partial<Omit<QAJobStatus, 'jobId' | 'config' | 'stats'>>
+  ): void {
+    const job = this.jobs.get(jobId);
+    if (job) {
+      Object.assign(job, updates, { updatedAt: new Date().toISOString() });
+    }
+  }
+
+  /**
+   * Update job statistics
+   */
+  private updateJobStats(jobId: string, updates: Partial<QAJobStats>): void {
+    const job = this.jobs.get(jobId);
+    if (job) {
+      Object.assign(job.stats, updates);
+      job.updatedAt = new Date().toISOString();
+    }
+  }
+
+  /**
+   * Update stats based on a validation result
+   */
+  private updateStatsFromResult(jobId: string, result: QAValidationResult): void {
+    const job = this.jobs.get(jobId);
+    if (!job) return;
+
+    job.stats.processedEntities++;
+
+    switch (result.status) {
+      case 'validated':
+        job.stats.validatedCount++;
+        break;
+      case 'warning':
+        job.stats.warningCount++;
+        break;
+      case 'mismatch':
+        job.stats.mismatchCount++;
+        break;
+      case 'unverified':
+        job.stats.unverifiedCount++;
+        break;
+    }
+
+    // Update average score
+    const totalScore =
+      job.stats.averageScore * (job.stats.processedEntities - 1) + result.overallScore;
+    job.stats.averageScore = Math.round(totalScore / job.stats.processedEntities);
+
+    job.updatedAt = new Date().toISOString();
+  }
+
+  /**
+   * Apply a single fix to an entity
+   */
+  async applyFix(
+    entityId: string,
+    field: string,
+    value: unknown
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Get the entity first to ensure it exists
+      const entityResult = await this.entityService.getEntity(entityId);
+      if (!entityResult.success || !entityResult.data) {
+        return { success: false, error: `Entity not found: ${entityId}` };
+      }
+
+      // Update the entity with the new field value
+      const updateResult = await this.entityService.updateEntity(entityId, {
+        [field]: value,
+      });
+
+      if (!updateResult.success) {
+        return { success: false, error: updateResult.errors?.join(', ') || 'Update failed' };
+      }
+
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Apply multiple fixes in batch
+   */
+  async applyFixBatch(
+    fixes: Array<{ entityId: string; field: string; value: unknown }>
+  ): Promise<Array<{ entityId: string; field: string; success: boolean; error?: string }>> {
+    const results: Array<{ entityId: string; field: string; success: boolean; error?: string }> = [];
+
+    for (const fix of fixes) {
+      const result = await this.applyFix(fix.entityId, fix.field, fix.value);
+      results.push({
+        entityId: fix.entityId,
+        field: fix.field,
+        success: result.success,
+        error: result.error,
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * Generate a validation report
+   */
+  private generateReport(
+    jobId: string,
+    config: QAValidationConfig,
+    results: QAValidationResult[]
+  ): QAReport {
+    const batchStats = calculateBatchStatistics(results);
+    const topIssues = identifyTopIssues(results);
+    const recommendations = generateRecommendations(results);
+
+    // Calculate by entity type
+    const byEntityType: Record<string, EntityTypeSummary> = {};
+    const byPosterType: Record<string, EntityTypeSummary> = {};
+
+    for (const result of results) {
+      // By entity type
+      if (!byEntityType[result.entityType]) {
+        byEntityType[result.entityType] = {
+          total: 0,
+          validated: 0,
+          warnings: 0,
+          mismatches: 0,
+          unverified: 0,
+          averageScore: 0,
+        };
+      }
+      const entityStats = byEntityType[result.entityType];
+      entityStats.total++;
+      if (result.status === 'validated') entityStats.validated++;
+      else if (result.status === 'warning') entityStats.warnings++;
+      else if (result.status === 'mismatch') entityStats.mismatches++;
+      else entityStats.unverified++;
+    }
+
+    // Calculate average scores by type
+    for (const type in byEntityType) {
+      const typeResults = results.filter(r => r.entityType === type);
+      const totalScore = typeResults.reduce((sum, r) => sum + r.overallScore, 0);
+      byEntityType[type].averageScore = Math.round(totalScore / typeResults.length);
+    }
+
+    const summary: QAReportSummary = {
+      totalEntities: batchStats.totalEntities,
+      validatedCount: batchStats.validatedCount,
+      warningCount: batchStats.warningCount,
+      mismatchCount: batchStats.mismatchCount,
+      unverifiedCount: batchStats.unverifiedCount,
+      overallScore: batchStats.averageScore,
+      byEntityType,
+      byPosterType,
+      topIssues,
+      apiStats: {
+        musicbrainz: { calls: 0, successes: 0, failures: 0 },
+        discogs: { calls: 0, successes: 0, failures: 0 },
+        tmdb: { calls: 0, successes: 0, failures: 0 },
+      },
+    };
+
+    return {
+      reportId: generateReportId(),
+      jobId,
+      generatedAt: new Date().toISOString(),
+      config,
+      summary,
+      results,
+      recommendations,
+    };
+  }
+}

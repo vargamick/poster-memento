@@ -27,6 +27,7 @@
     <nav class="tabs">
       <button class="tab-btn active" data-tab="browse">Browse Collection</button>
       <button class="tab-btn" data-tab="processing">Process Images</button>
+      <button class="tab-btn" data-tab="qa-validation">QA Validation</button>
     </nav>
 
     <main>
@@ -199,6 +200,174 @@
         </section>
       </div><!-- End Processing Tab -->
 
+      <!-- QA Validation Tab -->
+      <div id="qa-validation-tab" class="tab-content hidden">
+        <!-- Validation Overview Section -->
+        <section class="processing-section qa-overview-section">
+          <h2><span class="icon">🔍</span> QA Validation</h2>
+          <p class="section-description">Validate extracted poster data against external sources (MusicBrainz, Discogs, TMDB)</p>
+          <div class="qa-status-cards">
+            <div class="qa-status-card">
+              <span class="qa-status-value" id="qa-total-posters">--</span>
+              <span class="qa-status-label">Total Posters</span>
+            </div>
+            <div class="qa-status-card validated">
+              <span class="qa-status-value" id="qa-validated-count">--</span>
+              <span class="qa-status-label">Validated</span>
+            </div>
+            <div class="qa-status-card warning">
+              <span class="qa-status-value" id="qa-warning-count">--</span>
+              <span class="qa-status-label">Warnings</span>
+            </div>
+            <div class="qa-status-card error">
+              <span class="qa-status-value" id="qa-mismatch-count">--</span>
+              <span class="qa-status-label">Mismatches</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Validation Configuration Section -->
+        <section class="processing-section qa-config-section">
+          <h2><span class="icon">⚙️</span> Validation Settings</h2>
+          <div class="config-grid">
+            <label>
+              Poster Types
+              <select id="qa-poster-types" multiple size="5">
+                <option value="concert" selected>Concert</option>
+                <option value="festival" selected>Festival</option>
+                <option value="film" selected>Film</option>
+                <option value="release" selected>Release</option>
+                <option value="unknown" selected>Unknown (for type inference)</option>
+                <option value="comedy">Comedy</option>
+                <option value="theater">Theater</option>
+                <option value="promo">Promo</option>
+              </select>
+            </label>
+            <label>
+              Validators
+              <select id="qa-validators" multiple size="5">
+                <option value="artist" selected>Artist (MusicBrainz/Discogs)</option>
+                <option value="venue" selected>Venue (Location check)</option>
+                <option value="date" selected>Date (Format validation)</option>
+                <option value="release" selected>Release (Album/Film)</option>
+                <option value="poster_type" selected>Poster Type (Type inference)</option>
+              </select>
+            </label>
+            <label>
+              Batch Size
+              <select id="qa-batch-size">
+                <option value="5">5 posters</option>
+                <option value="10" selected>10 posters</option>
+                <option value="25">25 posters</option>
+                <option value="50">50 posters</option>
+              </select>
+            </label>
+            <label>
+              Min Confidence
+              <select id="qa-confidence-threshold">
+                <option value="0.5">50%</option>
+                <option value="0.7" selected>70%</option>
+                <option value="0.8">80%</option>
+                <option value="0.9">90%</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <!-- Validation Actions Section -->
+        <section class="processing-section qa-actions-section">
+          <div class="qa-action-buttons">
+            <button type="button" id="qa-start-btn" class="process-btn">Start Validation</button>
+            <button type="button" id="qa-check-health-btn" class="secondary-btn">Check API Health</button>
+          </div>
+          <div id="qa-api-health" class="qa-api-health hidden">
+            <span class="health-item" id="health-musicbrainz">MusicBrainz: <span class="health-status">--</span></span>
+            <span class="health-item" id="health-discogs">Discogs: <span class="health-status">--</span></span>
+            <span class="health-item" id="health-tmdb">TMDB: <span class="health-status">--</span></span>
+          </div>
+        </section>
+
+        <!-- Validation Progress Section (shown during validation) -->
+        <section id="qa-progress-section" class="processing-section progress-section hidden">
+          <h2><span class="icon">⏳</span> Validation Progress</h2>
+          <div class="progress-bar">
+            <div class="progress-fill" id="qa-progress-fill"></div>
+          </div>
+          <div class="progress-stats">
+            <span>Progress: <strong id="qa-progress-percent">0%</strong></span>
+            <span>Phase: <strong id="qa-progress-phase">Starting...</strong></span>
+          </div>
+          <div class="progress-log" id="qa-progress-log">
+            <!-- Validation log entries will appear here -->
+          </div>
+          <div class="progress-actions">
+            <button type="button" id="qa-cancel-btn" class="secondary-btn">Cancel Validation</button>
+          </div>
+        </section>
+
+        <!-- Validation Results Section -->
+        <section id="qa-results-section" class="processing-section qa-results-section hidden">
+          <div class="qa-results-header">
+            <h2><span class="icon">📊</span> Validation Results</h2>
+            <div class="qa-results-summary">
+              <span>Overall Score: <strong id="qa-overall-score">--</strong></span>
+            </div>
+          </div>
+
+          <!-- Filter Controls -->
+          <div class="qa-filter-controls">
+            <button type="button" class="qa-filter-btn active" data-filter="all">All</button>
+            <button type="button" class="qa-filter-btn" data-filter="mismatch">Mismatches</button>
+            <button type="button" class="qa-filter-btn" data-filter="warning">Warnings</button>
+            <button type="button" class="qa-filter-btn" data-filter="validated">Validated</button>
+          </div>
+
+          <!-- Bulk Actions -->
+          <div class="qa-bulk-actions">
+            <button type="button" id="qa-select-all-btn">Select All Visible</button>
+            <button type="button" id="qa-fix-selected-btn" class="process-btn" disabled>Fix Selected</button>
+            <button type="button" id="qa-fix-all-btn" class="secondary-btn" disabled>Fix All Mismatches</button>
+            <span class="selection-info">Selected: <strong id="qa-selected-count">0</strong></span>
+          </div>
+
+          <!-- Results Table -->
+          <div class="qa-results-table-container">
+            <table class="qa-results-table">
+              <thead>
+                <tr>
+                  <th class="th-checkbox"><label class="sr-only" for="qa-select-all-checkbox">Select all</label><input type="checkbox" id="qa-select-all-checkbox" title="Select all"></th>
+                  <th class="th-poster">Poster</th>
+                  <th class="th-field">Field</th>
+                  <th class="th-current">Current Value</th>
+                  <th class="th-suggested">Suggested Value</th>
+                  <th class="th-confidence">Confidence</th>
+                  <th class="th-status">Status</th>
+                  <th class="th-actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="qa-results-tbody">
+                <!-- Validation results rendered here -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Results Pagination -->
+          <div class="qa-results-pagination">
+            <button type="button" id="qa-results-prev-btn" disabled>Previous</button>
+            <span id="qa-results-page-info">Page 1</span>
+            <button type="button" id="qa-results-next-btn" disabled>Next</button>
+          </div>
+        </section>
+
+        <!-- Top Issues Section -->
+        <section id="qa-issues-section" class="processing-section qa-issues-section hidden">
+          <h2><span class="icon">⚠️</span> Top Issues</h2>
+          <div id="qa-top-issues" class="qa-issues-list">
+            <!-- Top issues will be rendered here -->
+          </div>
+        </section>
+      </div><!-- End QA Validation Tab -->
+
       <!-- Preview Modal -->
       <div id="preview-modal" class="modal hidden">
         <div class="modal-content preview-modal-content">
@@ -240,5 +409,6 @@
 
   <script type="module" src="js/app.js"></script>
   <script type="module" src="js/processing.js"></script>
+  <script type="module" src="js/qa-validation.js"></script>
 </body>
 </html>

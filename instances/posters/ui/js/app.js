@@ -6,6 +6,7 @@
 
 import { createAPI, APIError } from './api.js';
 import { processingManager } from './processing.js';
+import { qaValidationManager } from './qa-validation.js';
 
 class PosterApp {
   constructor() {
@@ -13,6 +14,7 @@ class PosterApp {
     this.currentPage = 1;
     this.currentTab = 'browse';
     this.processingInitialized = false;
+    this.qaValidationInitialized = false;
     this.limit = 10;
     this.totalPosters = 0;
     this.currentSearch = '';
@@ -56,7 +58,8 @@ class PosterApp {
       // Tabs
       tabButtons: document.querySelectorAll('.tab-btn'),
       browseTab: document.getElementById('browse-tab'),
-      processingTab: document.getElementById('processing-tab')
+      processingTab: document.getElementById('processing-tab'),
+      qaValidationTab: document.getElementById('qa-validation-tab')
     };
 
     // Bind event handlers
@@ -143,6 +146,7 @@ class PosterApp {
     // Hide all tab content
     this.elements.browseTab?.classList.add('hidden');
     this.elements.processingTab?.classList.add('hidden');
+    this.elements.qaValidationTab?.classList.add('hidden');
 
     // Show selected tab content
     if (tab === 'browse') {
@@ -154,6 +158,14 @@ class PosterApp {
       if (!this.processingInitialized) {
         await processingManager.init();
         this.processingInitialized = true;
+      }
+    } else if (tab === 'qa-validation') {
+      this.elements.qaValidationTab?.classList.remove('hidden');
+
+      // Initialize QA validation manager on first visit
+      if (!this.qaValidationInitialized) {
+        await qaValidationManager.init();
+        this.qaValidationInitialized = true;
       }
     }
 

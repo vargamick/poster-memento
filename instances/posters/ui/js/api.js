@@ -275,6 +275,109 @@ export class PosterAPI {
   async checkProcessingHealth() {
     return this.request('/api/v1/posters/health');
   }
+
+  // ============================================
+  // QA Validation API Methods
+  // ============================================
+
+  /**
+   * Start a QA validation job
+   * @param {object} options - Validation options
+   * @param {string[]} options.posterTypes - Filter by poster types
+   * @param {string[]} options.validators - Validators to run
+   * @param {number} options.batchSize - Batch size for processing
+   * @param {number} options.confidenceThreshold - Minimum confidence threshold
+   * @returns {Promise<object>} Job start response with jobId
+   */
+  async startQAValidation(options = {}) {
+    return this.request('/api/v1/qa-validation/start', {
+      method: 'POST',
+      body: JSON.stringify(options)
+    });
+  }
+
+  /**
+   * Get all QA validation jobs
+   * @returns {Promise<object>} List of jobs
+   */
+  async getQAJobs() {
+    return this.request('/api/v1/qa-validation/jobs');
+  }
+
+  /**
+   * Get status of a specific QA validation job
+   * @param {string} jobId - Job ID
+   * @returns {Promise<object>} Job status
+   */
+  async getQAJobStatus(jobId) {
+    return this.request(`/api/v1/qa-validation/jobs/${encodeURIComponent(jobId)}`);
+  }
+
+  /**
+   * Cancel a running QA validation job
+   * @param {string} jobId - Job ID
+   * @returns {Promise<object>} Cancellation result
+   */
+  async cancelQAJob(jobId) {
+    return this.request(`/api/v1/qa-validation/jobs/${encodeURIComponent(jobId)}`, {
+      method: 'DELETE'
+    });
+  }
+
+  /**
+   * Get QA validation report
+   * @param {string} jobId - Job ID
+   * @returns {Promise<object>} Validation report
+   */
+  async getQAReport(jobId) {
+    return this.request(`/api/v1/qa-validation/reports/${encodeURIComponent(jobId)}`);
+  }
+
+  /**
+   * Validate a single entity (preview mode)
+   * @param {string} entityName - Entity name to validate
+   * @returns {Promise<object>} Validation result
+   */
+  async validateSingleEntity(entityName) {
+    return this.request('/api/v1/qa-validation/validate/entity', {
+      method: 'POST',
+      body: JSON.stringify({ entityName })
+    });
+  }
+
+  /**
+   * Check QA external API health
+   * @returns {Promise<object>} Health status for each external API
+   */
+  async checkQAHealth() {
+    return this.request('/api/v1/qa-validation/health');
+  }
+
+  /**
+   * Apply a suggested fix from QA validation
+   * @param {string} entityId - Entity ID to fix
+   * @param {string} field - Field to update
+   * @param {string} value - New value to set
+   * @returns {Promise<object>} Update result
+   */
+  async applyQAFix(entityId, field, value) {
+    return this.request('/api/v1/qa-validation/fix', {
+      method: 'POST',
+      body: JSON.stringify({ entityId, field, value })
+    });
+  }
+
+  /**
+   * Apply multiple QA fixes in batch
+   * @param {Array<{entityId: string, field: string, value: string}>} fixes - Fixes to apply
+   * @returns {Promise<object>} Batch update result
+   */
+  async applyQAFixBatch(fixes) {
+    return this.request('/api/v1/qa-validation/fix/batch', {
+      method: 'POST',
+      body: JSON.stringify({ fixes })
+    });
+  }
 }
 
 /**

@@ -28,16 +28,26 @@ export class OllamaVisionProvider implements VisionModelProvider {
     const defaultPrompt = `Analyze this music/event poster image carefully.
 
 STEP 1: Determine the POSTER TYPE - what is the primary purpose of this poster?
-- concert: Advertises a concert, gig, or live music performance
-- festival: Advertises a music festival with multiple acts
+- concert: Advertises a concert, gig, or live music performance at a specific venue with a date
+- festival: Advertises a music festival with multiple acts (3+ artists typically)
 - comedy: Advertises a comedy show or standup performance
 - theater: Advertises a theatrical production or play
 - film: Advertises a movie or film screening
-- release: Promotes an album, single, EP, or music release
+- release: Promotes an album, single, EP, or music release.
+  IMPORTANT: If you see an artist/band name AND an album/title name together
+  WITHOUT a venue or specific event date, this is likely a RELEASE poster.
+  Look for text like "OUT NOW", "NEW ALBUM", "AVAILABLE", or just artist + title format.
 - promo: General promotional/advertising poster (endorsements, competitions)
 - exhibition: Art exhibition, gallery show, or museum display
-- hybrid: Combines event AND release promotion
-- unknown: Cannot determine the type
+- hybrid: Combines event AND release promotion (e.g., album release party with venue/date)
+- unknown: Cannot determine the type - use this ONLY if truly ambiguous
+
+TYPE DETECTION EXAMPLES:
+- "1200 TECHNIQUES - CONSISTENCY THEORY" (no venue/date) = release (artist + album title)
+- "METALLICA - ARENA TOUR 2024 - MADISON SQUARE GARDEN - MARCH 15" = concert (has venue + date)
+- "GLASTONBURY FESTIVAL - COLDPLAY, FOO FIGHTERS, ARCTIC MONKEYS..." = festival (multiple artists + festival name)
+- "THE GODFATHER - IN THEATERS NOW" = film
+- "KENDRICK LAMAR - MR. MORALE & THE BIG STEPPERS - AVAILABLE EVERYWHERE" = release
 
 STEP 2: Extract ALL visible text from the image exactly as shown.
 
