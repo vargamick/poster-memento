@@ -575,7 +575,7 @@ export class IterativeProcessor {
       // Create HAS_TYPE relationships for inferred types
       if (posterEntity.inferred_types) {
         for (const typeInference of posterEntity.inferred_types) {
-          const typeId = `poster_type_${typeInference.type_key}`;
+          const typeId = `PosterType_${typeInference.type_key}`;
 
           // Ensure type entity exists
           const existingType = await this.entityService.getEntity(typeId);

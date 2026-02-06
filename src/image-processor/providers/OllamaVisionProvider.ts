@@ -88,6 +88,14 @@ STEP 4: Describe VISUAL ELEMENTS:
 
 STEP 5: Return findings in this format:
 
+IMPORTANT OUTPUT RULES:
+- Return ONLY the extracted value for each field, NO explanations or commentary
+- If a field cannot be determined, leave it BLANK (do not write "Not specified" or "Unknown")
+- Dates MUST be in DD/MM/YYYY format (e.g., 20/04/1995, not "April 20, 1995")
+- If only partial date is available, use what you have (e.g., "20/04" if no year)
+- Do NOT include marketing text in date field (e.g., "ONLY AT THE MOVIES" is not a date)
+- Venue and Headliner must be separate - do NOT combine them
+
 POSTER TYPE: [concert|festival|comedy|theater|film|album|promo|exhibition|hybrid|unknown]
 
 EXTRACTED TEXT:
@@ -95,20 +103,20 @@ EXTRACTED TEXT:
 
 STRUCTURED DATA:
 Title: [event/release title]
-Headliner: [main artist]
-Supporting Acts: [comma separated list]
-Venue: [venue name]
-City: [city]
-State: [state/country]
-Date: [formatted date]
-Year: [year as number]
-Ticket Price: [price]
-Door Time: [time]
-Show Time: [time]
-Age Restriction: [if shown]
-Tour Name: [if shown]
-Record Label: [if shown]
-Promoter: [if shown]
+Headliner: [main artist name only]
+Supporting Acts: [comma separated list of artist names only]
+Venue: [venue name only, no city or date]
+City: [city name only]
+State: [state/country only]
+Date: [DD/MM/YYYY format only]
+Year: [4-digit year as number]
+Ticket Price: [price with currency]
+Door Time: [time in HH:MM format]
+Show Time: [time in HH:MM format]
+Age Restriction: [age limit if shown]
+Tour Name: [tour name if shown]
+Record Label: [label name if shown]
+Promoter: [promoter name if shown]
 
 VISUAL ELEMENTS:
 Has Artist Photo: [yes/no]
@@ -117,7 +125,7 @@ Has Logo: [yes/no]
 Dominant Colors: [comma separated]
 Style: [photographic|illustrated|typographic|mixed|other]
 
-Be accurate and only include information you can clearly see in the image.`;
+Be accurate. Only include information clearly visible in the image. Leave fields BLANK if not determinable.`;
 
     try {
       const response = await fetch(`${this.baseUrl}/api/generate`, {

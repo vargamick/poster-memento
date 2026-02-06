@@ -86,21 +86,30 @@ const POSTER_TYPE_SEEDS = [
   }
 ] as const;
 
-// Cache to avoid repeated checks within the same session
-let posterTypesSeeded = false;
+// Track last verification time to avoid checking on every single request
+// but still verify periodically (every 5 minutes)
+let lastVerificationTime = 0;
+const VERIFICATION_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Ensures PosterType entities exist in the knowledge graph.
  * Creates them if they don't exist. Safe to call multiple times.
  *
+ * Note: This verifies entities exist periodically (every 5 minutes) rather than
+ * using a simple boolean cache, to handle cases where entities are deleted.
+ *
  * @param knowledgeGraphManager - The knowledge graph manager instance
+ * @param forceCheck - If true, always check regardless of cache
  * @returns Promise<{ created: number; existing: number }>
  */
 export async function ensurePosterTypesSeeded(
-  knowledgeGraphManager: KnowledgeGraphManager
+  knowledgeGraphManager: KnowledgeGraphManager,
+  forceCheck: boolean = false
 ): Promise<{ created: number; existing: number }> {
-  // Quick exit if already seeded this session
-  if (posterTypesSeeded) {
+  const now = Date.now();
+
+  // Skip if recently verified (unless force check requested)
+  if (!forceCheck && (now - lastVerificationTime) < VERIFICATION_INTERVAL_MS) {
     return { created: 0, existing: POSTER_TYPE_SEEDS.length };
   }
 
@@ -124,7 +133,7 @@ export async function ensurePosterTypesSeeded(
 
     if (typesToCreate.length === 0) {
       logger.debug(`All ${POSTER_TYPE_SEEDS.length} PosterType entities already exist`);
-      posterTypesSeeded = true;
+      lastVerificationTime = now;
       return { created: 0, existing: existingPosterTypes.length };
     }
 
@@ -152,7 +161,7 @@ export async function ensurePosterTypesSeeded(
     const created = await knowledgeGraphManager.createEntities(entities as any);
 
     logger.info(`Created ${created.length} PosterType entities`);
-    posterTypesSeeded = true;
+    lastVerificationTime = now;
 
     return {
       created: created.length,
@@ -168,7 +177,7 @@ export async function ensurePosterTypesSeeded(
  * Reset the seeding cache (useful for testing or after database clear)
  */
 export function resetPosterTypeSeedCache(): void {
-  posterTypesSeeded = false;
+  lastVerificationTime = 0;
 }
 
 /**

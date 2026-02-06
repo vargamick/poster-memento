@@ -531,7 +531,7 @@ export class PosterAPI {
    * Process selected images from a session
    * @param {string} sessionId - Session ID
    * @param {object} options - Processing options
-   * @param {string[]} options.hashes - Image hashes to process (omit for all)
+   * @param {string[]} options.imageHashes - Image hashes to process (omit for all)
    * @param {string} options.modelKey - Vision model to use
    * @param {number} options.batchSize - Batch size (default: 5)
    * @returns {Promise<object>} Processing results

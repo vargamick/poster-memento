@@ -248,6 +248,34 @@ Add UI capability to:
 
 ---
 
+## Implementation Status
+
+### Completed (2026-02-06)
+
+1. **extraction_notes field added**
+   - [src/image-processor/types.ts](../src/image-processor/types.ts) - Added to `PosterEntity` and `VisionExtractionResult`
+
+2. **Data cleaner utility created**
+   - [src/image-processor/utils/posterDataCleaner.ts](../src/image-processor/utils/posterDataCleaner.ts)
+   - `normalizeDate()` - Converts various formats to DD/MM/YYYY
+   - `isCommentary()` - Detects explanatory text
+   - `extractCommentary()` - Separates data from notes
+   - `cleanPosterData()` - Full entity cleaning
+
+3. **Validation layer integrated**
+   - [src/api/routes/sessions.ts](../src/api/routes/sessions.ts) - Calls `cleanPosterData()` before entity creation
+   - Logs extraction notes for debugging
+   - Stores notes in entity observations
+
+4. **Vision prompts updated**
+   - [src/image-processor/providers/OllamaVisionProvider.ts](../src/image-processor/providers/OllamaVisionProvider.ts) - Updated default prompt with:
+     - DD/MM/YYYY date format requirement
+     - "Leave blank if unknown" instruction
+     - Field separation rules
+   - [src/image-processor/iterative/prompts.ts](../src/image-processor/iterative/prompts.ts) - Added date format rules to event prompts
+
+---
+
 ## Success Criteria
 
 - [ ] All dates in DD/MM/YYYY format or null

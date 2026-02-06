@@ -3018,3 +3018,95 @@ a.type-link.type-badge:hover {
   font-size: 0.8em;
   font-style: italic;
 }
+
+/* ================================================
+   Session Image Grid Styles
+   ================================================ */
+
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  padding: 16px;
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.image-card {
+  position: relative;
+  background: var(--background-color);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.image-card:hover {
+  border-color: var(--primary-color);
+  box-shadow: var(--shadow-md);
+}
+
+.image-card.selected {
+  border-color: var(--primary-color);
+  background: rgba(37, 99, 235, 0.05);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+}
+
+.image-checkbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 10;
+}
+
+.image-checkbox input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: var(--primary-color);
+}
+
+.image-thumbnail {
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  background: #f0f0f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.2s ease;
+}
+
+.image-card:hover .image-thumbnail img {
+  transform: scale(1.05);
+}
+
+.image-info {
+  padding: 10px;
+  background: white;
+}
+
+.image-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.image-size {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}

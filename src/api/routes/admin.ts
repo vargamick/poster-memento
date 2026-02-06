@@ -3,6 +3,9 @@ import { asyncHandler, ValidationError, NotFoundError } from '../middleware/erro
 import type { AdminService } from '../../services/AdminService.js';
 import type { S3Service } from '../../services/S3Service.js';
 import type { ProcessingService } from '../../services/ProcessingService.js';
+import type { KnowledgeGraphManager } from '../../KnowledgeGraphManager.js';
+import { ensurePosterTypesSeeded, resetPosterTypeSeedCache } from '../../utils/ensurePosterTypes.js';
+import { logger } from '../../utils/logger.js';
 
 /**
  * Create admin routes
@@ -13,7 +16,8 @@ import type { ProcessingService } from '../../services/ProcessingService.js';
 export function createAdminRoutes(
   adminService: AdminService,
   s3Service: S3Service,
-  processingService: ProcessingService
+  processingService: ProcessingService,
+  knowledgeGraphManager?: KnowledgeGraphManager
 ): Router {
   const router = Router();
 
@@ -195,6 +199,34 @@ export function createAdminRoutes(
   }));
 
   /**
+   * POST /admin/seed - Seed required entities (PosterTypes)
+   *
+   * Creates PosterType entities if they don't exist. Safe to call multiple times.
+   * Use this after a database reset or on a fresh database.
+   */
+  router.post('/seed', asyncHandler(async (req, res) => {
+    if (!knowledgeGraphManager) {
+      throw new ValidationError('Knowledge graph manager not available for seeding');
+    }
+
+    logger.info('Seeding PosterType entities...');
+    resetPosterTypeSeedCache(); // Clear cache to force seeding
+    const seedResult = await ensurePosterTypesSeeded(knowledgeGraphManager, true);
+
+    res.json({
+      data: {
+        success: true,
+        posterTypesCreated: seedResult.created,
+        posterTypesExisting: seedResult.existing,
+        totalPosterTypes: seedResult.created + seedResult.existing
+      },
+      message: seedResult.created > 0
+        ? `Created ${seedResult.created} PosterType entities.`
+        : 'All PosterType entities already exist.'
+    });
+  }));
+
+  /**
    * POST /admin/reset - Reset databases (creates backup first)
    *
    * Requires header: x-admin-confirm: RESET
@@ -210,13 +242,25 @@ export function createAdminRoutes(
 
     const result = await adminService.resetDatabases();
 
+    // Reseed PosterType entities if knowledgeGraphManager is available
+    let seedResult = { created: 0, existing: 0 };
+    if (knowledgeGraphManager) {
+      logger.info('Reseeding PosterType entities after reset...');
+      resetPosterTypeSeedCache(); // Clear cache so seeding runs
+      seedResult = await ensurePosterTypesSeeded(knowledgeGraphManager, true);
+      logger.info('Seeding complete', { posterTypesCreated: seedResult.created });
+    }
+
     res.json({
       data: {
         success: result.success,
         backupTimestamp: result.backupTimestamp,
         previousStats: result.previousStats,
         newStats: result.newStats,
-        duration: result.duration
+        duration: result.duration,
+        seeded: {
+          posterTypesCreated: seedResult.created
+        }
       },
       message: 'Database reset complete. Backup created before reset.'
     });

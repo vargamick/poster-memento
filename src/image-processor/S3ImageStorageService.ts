@@ -142,28 +142,32 @@ export class S3ImageStorageService {
   }
 
   /**
-   * Get presigned URL by hash (looks for the original image)
+   * Get presigned URL by hash (looks in live/images/ and originals/ folders)
    */
   async getPresignedUrlByHash(hash: string, expirySeconds?: number): Promise<string | null> {
-    try {
-      // List objects with the hash prefix
-      const response = await this.s3.send(new ListObjectsV2Command({
-        Bucket: this.bucket,
-        Prefix: `originals/${hash}-`,
-        MaxKeys: 1
-      }));
+    // Try live/images/ first (new session-based workflow), then originals/ (legacy)
+    const prefixes = [`live/images/${hash}-`, `originals/${hash}-`];
 
-      if (!response.Contents || response.Contents.length === 0) {
-        return null;
+    for (const prefix of prefixes) {
+      try {
+        const response = await this.s3.send(new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          MaxKeys: 1
+        }));
+
+        if (response.Contents && response.Contents.length > 0) {
+          const key = response.Contents[0].Key;
+          if (key) {
+            return this.getPresignedUrl(key, expirySeconds);
+          }
+        }
+      } catch {
+        // Continue to next prefix
       }
-
-      const key = response.Contents[0].Key;
-      if (!key) return null;
-
-      return this.getPresignedUrl(key, expirySeconds);
-    } catch {
-      return null;
     }
+
+    return null;
   }
 
   /**

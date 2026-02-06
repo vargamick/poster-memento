@@ -29,6 +29,8 @@ export interface VisionExtractionResult {
       dominant_colors?: string[];
       style?: 'photographic' | 'illustrated' | 'typographic' | 'mixed' | 'other';
     };
+    /** Vision model notes/commentary extracted from uncertain fields */
+    extraction_notes?: string;
   };
   model: string;
   provider: string;
@@ -106,6 +108,12 @@ export interface PosterEntity {
   state?: string;
   country?: string;
   event_date?: string;
+  /**
+   * Vision model commentary and uncertainty notes.
+   * Stores explanatory text that shouldn't be in data fields.
+   * E.g., "Date could not be determined", "Artist name unclear"
+   */
+  extraction_notes?: string;
   year?: number;
   decade?: string;
   ticket_price?: string;

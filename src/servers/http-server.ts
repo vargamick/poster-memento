@@ -476,7 +476,7 @@ if (process.env.ADMIN_ENABLED !== 'false') {
     const adminService = createAdminServiceFromEnv();
     const s3Service = createS3ServiceFromEnv();
     const processingService = createProcessingServiceFromEnv();
-    apiV1.use('/admin', createAdminRoutes(adminService, s3Service, processingService));
+    apiV1.use('/admin', createAdminRoutes(adminService, s3Service, processingService, knowledgeGraphManager));
     logger.info('Admin routes enabled at /api/v1/admin');
   } catch (error: any) {
     logger.warn('Admin routes not initialized', { error: error.message });

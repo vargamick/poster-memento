@@ -149,13 +149,27 @@ export class ImageStorageService {
   }
 
   /**
-   * Get presigned URL by hash (looks for the original image)
+   * Get presigned URL by hash (looks in live/images/ and originals/ folders)
    * If publicUrl is configured, returns a direct public URL (for buckets with anonymous access)
    */
   async getPresignedUrlByHash(hash: string, expirySeconds: number = 3600): Promise<string | null> {
+    // Try live/images/ first (new session-based workflow), then originals/ (legacy)
+    const prefixes = [`live/images/${hash}-`, `originals/${hash}-`];
+
+    for (const prefix of prefixes) {
+      const result = await this.findImageByPrefix(prefix, expirySeconds);
+      if (result) return result;
+    }
+
+    return null;
+  }
+
+  /**
+   * Helper to find an image by prefix and return its URL
+   */
+  private async findImageByPrefix(prefix: string, expirySeconds: number): Promise<string | null> {
     try {
-      // List objects with the hash prefix
-      const stream = this.minio.listObjects(this.bucket, `originals/${hash}-`, false);
+      const stream = this.minio.listObjects(this.bucket, prefix, false);
 
       return new Promise((resolve, reject) => {
         let found = false;

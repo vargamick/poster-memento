@@ -69,10 +69,22 @@
         "maxRetries": 3
       }
     },
-    "claude-opus-4": {
+    "claude-opus-4.5": {
       "provider": "anthropic",
-      "model": "claude-opus-4-20250514",
-      "description": "Claude Opus 4 - Most intelligent, exceptional reasoning",
+      "model": "claude-opus-4-5-20251101",
+      "description": "Claude Opus 4.5 - Most capable, exceptional reasoning & vision",
+      "parameters": "cloud",
+      "options": {
+        "temperature": 0.1,
+        "maxTokens": 4096,
+        "timeout": 120000,
+        "maxRetries": 3
+      }
+    },
+    "claude-sonnet-4.5": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5-20250929",
+      "description": "Claude Sonnet 4.5 - Best balance of speed & intelligence",
       "parameters": "cloud",
       "options": {
         "temperature": 0.1,
@@ -81,34 +93,16 @@
         "maxRetries": 3
       }
     },
-    "claude-sonnet-4": {
+    "claude-haiku-4.5": {
       "provider": "anthropic",
-      "model": "claude-sonnet-4-20250514",
-      "description": "Claude Sonnet 4 - Best balance of speed & intelligence",
+      "model": "claude-haiku-4-5-20251001",
+      "description": "Claude Haiku 4.5 - Fastest Claude with strong vision",
       "parameters": "cloud",
       "options": {
         "temperature": 0.1,
-        "maxTokens": 4096
-      }
-    },
-    "claude-sonnet-4.5": {
-      "provider": "anthropic",
-      "model": "claude-sonnet-4-5-20250929",
-      "description": "Claude Sonnet 4.5 - Latest with extended thinking",
-      "parameters": "cloud",
-      "options": {
-        "temperature": 0.1,
-        "maxTokens": 4096
-      }
-    },
-    "claude-haiku-4": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-20250514",
-      "description": "Claude Haiku 4 - Fastest with strong intelligence",
-      "parameters": "cloud",
-      "options": {
-        "temperature": 0.1,
-        "maxTokens": 4096
+        "maxTokens": 4096,
+        "timeout": 60000,
+        "maxRetries": 3
       }
     },
     "gemini-2.0-flash": {
@@ -118,7 +112,21 @@
       "parameters": "cloud",
       "options": {
         "temperature": 0.1,
-        "maxTokens": 4096
+        "maxTokens": 4096,
+        "timeout": 60000,
+        "maxRetries": 3
+      }
+    },
+    "gemini-2.0-flash-lite": {
+      "provider": "google",
+      "model": "gemini-2.0-flash-lite",
+      "description": "Gemini 2.0 Flash Lite - Fastest, most cost-efficient",
+      "parameters": "cloud",
+      "options": {
+        "temperature": 0.1,
+        "maxTokens": 4096,
+        "timeout": 45000,
+        "maxRetries": 3
       }
     },
     "gemini-1.5-pro": {
@@ -140,7 +148,9 @@
       "parameters": "cloud",
       "options": {
         "temperature": 0.1,
-        "maxTokens": 4096
+        "maxTokens": 4096,
+        "timeout": 60000,
+        "maxRetries": 3
       }
     }
   }

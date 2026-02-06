@@ -272,6 +272,11 @@ class ProcessingManager {
 
     this.currentSessionId = sessionId;
 
+    // Update dropdown to reflect new selection
+    if (this.elements.sessionSelect) {
+      this.elements.sessionSelect.value = sessionId;
+    }
+
     try {
       const response = await fetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
         headers: { 'X-API-Key': 'posters-api-key-2024' }
@@ -325,6 +330,12 @@ class ProcessingManager {
       });
       const result = await response.json();
 
+      if (!response.ok) {
+        // Extract error message from various response formats
+        const errorMsg = result.error?.message || result.error || result.message || 'Failed to create session';
+        throw new Error(errorMsg);
+      }
+
       if (result.success && result.session) {
         this.addLogEntry(`Created session: ${result.session.name}`, 'success');
         await this.loadSessions();
@@ -342,7 +353,7 @@ class ProcessingManager {
           this.elements.newSessionBtn.classList.remove('hidden');
         }
       } else {
-        throw new Error(result.error || 'Failed to create session');
+        throw new Error(result.error?.message || result.error || 'Failed to create session');
       }
     } catch (error) {
       console.error('Failed to create session:', error);
@@ -541,7 +552,7 @@ class ProcessingManager {
       for (const localFile of selectedFiles) {
         const file = localFile.file || await localFile.handle.getFile();
         const formData = new FormData();
-        formData.append('file', file, localFile.name);
+        formData.append('images', file, localFile.name);
 
         const response = await fetch(`/api/v1/sessions/${encodeURIComponent(this.currentSessionId)}/images`, {
           method: 'POST',
@@ -551,7 +562,8 @@ class ProcessingManager {
 
         if (!response.ok) {
           const result = await response.json();
-          throw new Error(result.error || `Failed to upload ${localFile.name}`);
+          const errorMsg = result.error?.message || result.error || result.message || `Failed to upload ${localFile.name}`;
+          throw new Error(errorMsg);
         }
 
         uploaded++;
@@ -765,7 +777,7 @@ class ProcessingManager {
           'X-API-Key': 'posters-api-key-2024'
         },
         body: JSON.stringify({
-          hashes,
+          imageHashes: hashes,
           batchSize,
           modelKey
         })

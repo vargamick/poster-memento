@@ -165,12 +165,12 @@ services:
 
       # AWS S3 Configuration (for image storage with presigned URLs)
       # When configured, S3 takes priority over MinIO
-      # Set these in your .env file
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-      - AWS_REGION=${AWS_REGION:-ap-southeast-2}
-      - S3_BUCKET=${S3_BUCKET:-poster-memento-images}
-      - S3_PRESIGNED_URL_EXPIRY=3600
+      # DISABLED for local development - uncomment to use S3
+      # - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      # - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      # - AWS_REGION=${AWS_REGION:-ap-southeast-2}
+      # - S3_BUCKET=${S3_BUCKET:-poster-memento-images}
+      # - S3_PRESIGNED_URL_EXPIRY=3600
 
       # Instance Configuration
       - CONFIG_PATH=/app/config/instance-config.json

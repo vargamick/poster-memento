@@ -26,7 +26,7 @@ import { createPosterProcessor, PosterProcessor } from '../../image-processor/Po
 import { VisionModelFactory } from '../../image-processor/VisionModelFactory.js';
 import { KnowledgeGraphManager, type Relation } from '../../KnowledgeGraphManager.js';
 import { logger } from '../../utils/logger.js';
-import { ensurePosterTypesSeeded } from '../../utils/ensurePosterTypes.js';
+import { ensurePosterTypesSeeded, resetPosterTypeSeedCache } from '../../utils/ensurePosterTypes.js';
 import { createImageStorageFromEnv, ImageStorageService } from '../../image-processor/ImageStorageService.js';
 import type { TypeInference } from '../../image-processor/types.js';
 
@@ -970,6 +970,14 @@ export function createPosterRoutes(knowledgeGraphManager: KnowledgeGraphManager)
       // Clear any cached processing state
       resetProcessingState();
 
+      // Step 3: Reseed PosterType entities
+      logger.info('Step 3: Reseeding PosterType entities...');
+      resetPosterTypeSeedCache(); // Clear the cache so seeding actually runs
+      const seedResult = await ensurePosterTypesSeeded(knowledgeGraphManager, true);
+      logger.info('Seeding complete', {
+        posterTypesCreated: seedResult.created
+      });
+
       res.json({
         data: {
           success: true,
@@ -988,6 +996,9 @@ export function createPosterRoutes(knowledgeGraphManager: KnowledgeGraphManager)
             entitiesRemoved: resetResult.beforeStats.neo4j.entities,
             relationshipsRemoved: resetResult.beforeStats.neo4j.relationships,
             embeddingsRemoved: resetResult.beforeStats.postgres.embeddings
+          },
+          seeded: {
+            posterTypesCreated: seedResult.created
           }
         }
       });

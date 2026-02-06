@@ -94,9 +94,27 @@ Look for:
 - TOUR NAME: If this is part of a named tour
 - RECORD LABEL: If visible (often at bottom)
 
+IMPORTANT FORMATTING RULES:
+- Each artist/band MUST be a SEPARATE entry in the array
+- Do NOT concatenate multiple artists into a single string
+- If poster shows "Artist A with Artist B and Artist C", return them as separate array entries
+- Band members are part of the band name, not separate entries (e.g., "The Black Eyed Peas" is one entry)
+
+CORRECT:
+{
+  "headliner": "Artist A",
+  "supporting_acts": ["Artist B", "Artist C", "Artist D"]
+}
+
+WRONG (do NOT do this):
+{
+  "headliner": "Artist A Artist B Artist C",
+  "supporting_acts": ["Artist B Artist C Artist D"]
+}
+
 Return JSON:
 {
-  "headliner": "main artist name",
+  "headliner": "main artist name only",
   "supporting_acts": ["support1", "support2"],
   "tour_name": "tour name if visible",
   "record_label": "label if visible"
@@ -109,10 +127,29 @@ Look for:
 - LINEUP: Full list of performing artists
 - Order usually indicates billing (top = biggest)
 
+CRITICAL FORMATTING RULES:
+- List EACH artist as a SEPARATE entry in the supporting_acts array
+- Do NOT concatenate multiple artist names into a single string
+- If the poster lists "Band1  Band2  Band3", create separate entries for each
+- Festival lineups often have many artists - list each one separately
+
+CORRECT example for a festival with 6 bands:
+{
+  "headliner": "Main Headliner",
+  "supporting_acts": ["Band 2", "Band 3", "Band 4", "Band 5", "Band 6"],
+  "festival_name": "Summer Fest"
+}
+
+WRONG (do NOT concatenate like this):
+{
+  "headliner": "Band1 Band2 Band3",
+  "supporting_acts": ["Band4 Band5 Band6"]
+}
+
 Return JSON:
 {
-  "headliner": "top billed artist",
-  "supporting_acts": ["artist2", "artist3", "..."],
+  "headliner": "top billed artist only",
+  "supporting_acts": ["artist2", "artist3", "artist4", "artist5"],
   "festival_name": "name of festival"
 }`,
 
@@ -171,9 +208,14 @@ Look for:
 - FEATURED COMICS: Opening acts, guest comedians
 - HOST: If there's an MC/host
 
+FORMATTING RULES:
+- Each comedian MUST be a SEPARATE entry in the array
+- Do NOT combine multiple comedians into a single string
+- "John Doe with Jane Smith" should be: headliner="John Doe", supporting_acts=["Jane Smith"]
+
 Return JSON:
 {
-  "headliner": "main comedian",
+  "headliner": "main comedian name only",
   "supporting_acts": ["opener1", "opener2"],
   "host": "host/mc if any"
 }`,
@@ -397,24 +439,37 @@ Return JSON:
 // Phase 4: Event/Date Extraction Prompts (by type)
 // ============================================================================
 
+/**
+ * IMPORTANT: Date format rules for all event prompts:
+ * - Output dates in DD/MM/YYYY format (e.g., 15/03/2024)
+ * - If year unknown, use DD/MM (e.g., 15/03)
+ * - Leave field empty/null if date cannot be determined
+ * - Do NOT include explanatory text like "Not specified"
+ */
 export const EVENT_PROMPTS: Record<PosterType, string> = {
   concert: `Extract event details from this CONCERT poster.
 
+IMPORTANT OUTPUT RULES:
+- Dates MUST be in DD/MM/YYYY format (e.g., 15/03/2024)
+- If year unknown, use DD/MM only (e.g., 15/03)
+- Leave fields empty if not visible - do NOT write "not specified" or similar
+- Times should be in HH:MM format (e.g., 19:00, 20:30)
+
 Look for:
-- DATE: Event date (various formats: "March 15", "3/15/24", "15.03.2024")
-- YEAR: If not in date
-- DOOR TIME: When doors open ("Doors at 7pm", "7pm doors")
-- SHOW TIME: When show starts ("Show at 8pm", "8pm")
-- TICKET PRICE: Cost ("$20", "$20 adv / $25 dos")
+- DATE: Event date (convert to DD/MM/YYYY)
+- YEAR: 4-digit year
+- DOOR TIME: When doors open
+- SHOW TIME: When show starts
+- TICKET PRICE: Cost with currency
 - AGE RESTRICTION: ("21+", "All Ages", "18+")
 - PROMOTER: Presenting company
 
 Return JSON:
 {
-  "event_date": "date as written",
+  "event_date": "DD/MM/YYYY",
   "year": 2024,
-  "door_time": "7:00 PM",
-  "show_time": "8:00 PM",
+  "door_time": "19:00",
+  "show_time": "20:00",
   "ticket_price": "$20",
   "age_restriction": "21+",
   "promoter": "promoter name"

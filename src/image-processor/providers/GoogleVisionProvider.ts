@@ -124,13 +124,12 @@ export class GoogleVisionProvider extends BaseCloudVisionProvider {
   }
 
   async listModels(): Promise<string[]> {
-    // Return commonly used vision-capable Gemini models
+    // Return currently available vision-capable Gemini models
     return [
+      'gemini-2.0-flash',
+      'gemini-2.0-flash-lite',
       'gemini-1.5-pro-latest',
-      'gemini-1.5-flash-latest',
-      'gemini-2.0-flash-exp',
-      'gemini-1.5-pro',
-      'gemini-1.5-flash'
+      'gemini-1.5-flash-latest'
     ];
   }
 

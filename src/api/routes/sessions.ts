@@ -9,12 +9,16 @@
 import { Router } from 'express';
 import * as crypto from 'crypto';
 import multer from 'multer';
-import { asyncHandler, ValidationError, NotFoundError } from '../middleware/errorHandler.js';
+import { asyncHandler, ValidationError, NotFoundError, ConflictError } from '../middleware/errorHandler.js';
 import { createImageStorageFromEnv, ImageStorageService } from '../../image-processor/ImageStorageService.js';
 import { createPosterProcessor, PosterProcessor } from '../../image-processor/PosterProcessor.js';
 import { KnowledgeGraphManager, type Relation } from '../../KnowledgeGraphManager.js';
 import { logger } from '../../utils/logger.js';
 import { ensurePosterTypesSeeded } from '../../utils/ensurePosterTypes.js';
+import { cleanPosterData } from '../../image-processor/utils/posterDataCleaner.js';
+import { ArtistSplitter, type ValidatedArtist, splitAndValidateArtists } from '../../image-processor/utils/artistSplitter.js';
+import { splitVenueDate } from '../../image-processor/utils/venueDateSplitter.js';
+import { MusicBrainzClient } from '../../qa-validation/clients/MusicBrainzClient.js';
 import type { SessionProcessingResult, ProcessingResultMetadata, PosterEntity } from '../../image-processor/types.js';
 
 // Configure multer for file uploads (memory storage)
@@ -54,6 +58,21 @@ async function getProcessor(): Promise<PosterProcessor> {
   return processorInstance;
 }
 
+// Cache artist splitter instance (with MusicBrainz client)
+let artistSplitterInstance: ArtistSplitter | null = null;
+
+function getArtistSplitter(): ArtistSplitter {
+  if (!artistSplitterInstance) {
+    const musicBrainz = new MusicBrainzClient();
+    artistSplitterInstance = new ArtistSplitter(musicBrainz, undefined, {
+      matchThreshold: 0.85,
+      partialThreshold: 0.7,
+      verbose: false,
+    });
+  }
+  return artistSplitterInstance;
+}
+
 /**
  * Create session routes
  */
@@ -84,11 +103,18 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
     }
 
     const storage = await getStorageService();
-    const session = await storage.createSession(name);
 
-    logger.info('Session created', { sessionId: session.sessionId, name: session.name });
-
-    res.status(201).json({ session });
+    try {
+      const session = await storage.createSession(name);
+      logger.info('Session created', { sessionId: session.sessionId, name: session.name });
+      res.status(201).json({ success: true, session });
+    } catch (error: unknown) {
+      const err = error as Error;
+      if (err.message?.includes('already exists')) {
+        throw new ConflictError(`Session with name "${name}" already exists for today. Use a different name.`);
+      }
+      throw error;
+    }
   }));
 
   /**
@@ -210,7 +236,7 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
     const { sessionId } = req.params;
     const {
       imageHashes,
-      modelKey = 'ollama-minicpm',
+      modelKey = 'minicpm-v-ollama',
       batchSize = 5
     } = req.body;
 
@@ -263,7 +289,31 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
                 throw new Error(processingResult.error || 'Processing failed');
               }
 
-              const posterEntity = processingResult.entity;
+              let posterEntity = processingResult.entity;
+
+              // Clean and normalize the entity data
+              const { entity: cleanedEntity, extractionNotes } = cleanPosterData(posterEntity);
+              posterEntity = { ...posterEntity, ...cleanedEntity } as PosterEntity;
+
+              // Log any extraction notes
+              if (extractionNotes.length > 0) {
+                logger.info('Extraction notes for image', {
+                  hash: image.hash,
+                  notes: extractionNotes
+                });
+              }
+
+              // Enrich with artist splitting and venue/date separation
+              const enrichmentResult = await enrichPosterEntity(posterEntity);
+              posterEntity = enrichmentResult.entity;
+
+              // Log enrichment notes
+              if (enrichmentResult.notes.length > 0) {
+                logger.info('Enrichment notes for image', {
+                  hash: image.hash,
+                  notes: enrichmentResult.notes
+                });
+              }
 
               // Update entity metadata with S3 info
               posterEntity.metadata = {
@@ -290,6 +340,7 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
               if (posterEntity.event_date) additionalObs.push(`Event date: ${posterEntity.event_date}`);
               if (posterEntity.year) additionalObs.push(`Year: ${posterEntity.year}`);
               if (image.hash) additionalObs.push(`Image hash: ${image.hash}`);
+              if (posterEntity.extraction_notes) additionalObs.push(`Extraction notes: ${posterEntity.extraction_notes}`);
 
               if (additionalObs.length > 0) {
                 await knowledgeGraphManager.addObservations([{
@@ -298,8 +349,8 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
                 }]);
               }
 
-              // Create relationships
-              await createPosterRelationships(knowledgeGraphManager, posterEntity);
+              // Create relationships (with Event entity support)
+              await createPosterRelationshipsWithEvent(knowledgeGraphManager, posterEntity as EnrichedPosterEntity);
 
               // Move image to live folder
               await storage.moveToLive(sessionId, image.hash, posterEntity.name);
@@ -474,7 +525,21 @@ async function createPosterRelationships(
   // Create HAS_TYPE relations for inferred_types
   if (entity.inferred_types?.length) {
     for (const typeInference of entity.inferred_types) {
-      const typeName = `poster_type_${typeInference.type_key}`;
+      const typeName = `PosterType_${typeInference.type_key}`;
+
+      // Verify the PosterType entity exists before creating relationship
+      try {
+        const typeResult = await knowledgeGraphManager.openNodes([typeName]);
+
+        if (typeResult.entities.length === 0) {
+          // PosterType doesn't exist - force re-seed
+          logger.warn(`PosterType entity ${typeName} not found, triggering re-seed`);
+          await ensurePosterTypesSeeded(knowledgeGraphManager, true);
+        }
+      } catch (e) {
+        logger.warn(`Failed to verify PosterType ${typeName} exists`, { error: e });
+      }
+
       relations.push({
         from: entity.name,
         to: typeName,
@@ -494,6 +559,448 @@ async function createPosterRelationships(
   if (relations.length > 0) {
     try {
       await knowledgeGraphManager.createRelations(relations);
+    } catch (error) {
+      logger.warn('Failed to create some relations', { error });
+    }
+  }
+}
+
+// ============================================================================
+// Enrichment Functions
+// ============================================================================
+
+interface EnrichedPosterEntity extends PosterEntity {
+  /** Validated artists (enriched from splitter) */
+  validatedArtists?: ValidatedArtist[];
+  /** Whether artists were split from concatenated text */
+  artistsWereSplit?: boolean;
+  /** Event entity name (if created) */
+  eventEntityName?: string;
+}
+
+interface EnrichmentResult {
+  entity: EnrichedPosterEntity;
+  notes: string[];
+}
+
+/**
+ * Enrich a poster entity with:
+ * - Split and validated artists
+ * - Separated venue/date fields
+ */
+async function enrichPosterEntity(entity: PosterEntity): Promise<EnrichmentResult> {
+  const notes: string[] = [];
+  const enriched: EnrichedPosterEntity = { ...entity };
+  const splitter = getArtistSplitter();
+
+  // Step 1: Split and validate headliner
+  if (entity.headliner) {
+    try {
+      const headlinerResult = await splitter.splitAndValidate(entity.headliner);
+
+      if (headlinerResult.wasConcatenated) {
+        notes.push(`Headliner was concatenated: "${entity.headliner}" → ${headlinerResult.artists.length} artists`);
+        enriched.artistsWereSplit = true;
+
+        // Use first validated artist as headliner, rest become supporting acts
+        if (headlinerResult.artists.length > 0) {
+          const primary = headlinerResult.artists[0];
+          enriched.headliner = primary.canonicalName ?? primary.name;
+
+          // Add remaining to supporting acts
+          const additionalActs = headlinerResult.artists.slice(1).map(a => a.canonicalName ?? a.name);
+          enriched.supporting_acts = [
+            ...additionalActs,
+            ...(enriched.supporting_acts || [])
+          ];
+        }
+
+        enriched.validatedArtists = headlinerResult.artists;
+      } else if (headlinerResult.artists.length > 0 && headlinerResult.artists[0].canonicalName) {
+        // Single artist validated - use canonical name
+        const validated = headlinerResult.artists[0];
+        if (validated.canonicalName !== entity.headliner) {
+          notes.push(`Headliner validated: "${entity.headliner}" → "${validated.canonicalName}"`);
+          enriched.headliner = validated.canonicalName;
+        }
+        enriched.validatedArtists = [validated];
+      }
+    } catch (error) {
+      logger.warn('Failed to split/validate headliner', { headliner: entity.headliner, error });
+    }
+  }
+
+  // Step 2: Split and validate supporting acts
+  if (entity.supporting_acts?.length) {
+    try {
+      const actsResult = await splitAndValidateArtists(entity.supporting_acts, splitter);
+
+      if (actsResult.anyConcatenated) {
+        notes.push(`Supporting acts were concatenated, split into ${actsResult.artists.length} artists`);
+        enriched.artistsWereSplit = true;
+      }
+
+      // Update supporting_acts with validated/split names
+      enriched.supporting_acts = actsResult.artists.map(a => a.canonicalName ?? a.name);
+
+      // Merge validated artists
+      enriched.validatedArtists = [
+        ...(enriched.validatedArtists || []),
+        ...actsResult.artists
+      ];
+
+      // Deduplicate by name
+      const seen = new Set<string>();
+      enriched.validatedArtists = enriched.validatedArtists.filter(a => {
+        const key = (a.canonicalName ?? a.name).toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    } catch (error) {
+      logger.warn('Failed to split/validate supporting acts', { error });
+    }
+  }
+
+  // Step 3: Split venue/date if venue contains date information
+  if (entity.venue_name) {
+    const venueDateResult = splitVenueDate(entity.venue_name);
+
+    if (venueDateResult.wasMixed) {
+      notes.push(`Venue contained date: "${entity.venue_name}" → venue="${venueDateResult.venue}", date="${venueDateResult.date}"`);
+
+      enriched.venue_name = venueDateResult.venue;
+
+      // Merge date into event_date if not already set
+      if (venueDateResult.date && !enriched.event_date) {
+        enriched.event_date = venueDateResult.date;
+      }
+
+      // Merge year if extracted
+      if (venueDateResult.year && !enriched.year) {
+        enriched.year = venueDateResult.year;
+        enriched.decade = `${Math.floor(venueDateResult.year / 10) * 10}s`;
+      }
+    }
+  }
+
+  // Step 4: Generate event entity name for event-based posters
+  const eventTypes = ['concert', 'festival', 'comedy', 'theater'];
+  if (enriched.poster_type && eventTypes.includes(enriched.poster_type)) {
+    enriched.eventEntityName = generateEventName(enriched);
+  }
+
+  return { entity: enriched, notes };
+}
+
+/**
+ * Generate a unique event entity name from poster data
+ */
+function generateEventName(entity: PosterEntity): string {
+  const parts: string[] = [];
+
+  // Use tour name if available, otherwise headliner
+  if (entity.tour_name) {
+    parts.push(entity.tour_name);
+  } else if (entity.headliner) {
+    parts.push(entity.headliner);
+  }
+
+  // Add venue if available
+  if (entity.venue_name) {
+    parts.push('at');
+    parts.push(entity.venue_name);
+  }
+
+  // Add date if available
+  if (entity.event_date) {
+    parts.push(entity.event_date.replace(/\//g, '-'));
+  } else if (entity.year) {
+    parts.push(String(entity.year));
+  }
+
+  // Generate slug
+  const slug = parts
+    .join('_')
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+
+  return `event_${slug || 'unknown'}`;
+}
+
+/**
+ * Create relationships for a poster entity (extended version with Event support)
+ */
+async function createPosterRelationshipsWithEvent(
+  knowledgeGraphManager: KnowledgeGraphManager,
+  entity: EnrichedPosterEntity
+): Promise<void> {
+  const relations: Relation[] = [];
+  const now = Date.now();
+
+  // Step 1: Create Event entity if applicable
+  let eventName: string | null = null;
+  const eventTypes = ['concert', 'festival', 'comedy', 'theater'];
+
+  if (entity.poster_type && eventTypes.includes(entity.poster_type)) {
+    eventName = entity.eventEntityName ?? generateEventName(entity);
+
+    try {
+      const eventObservations: string[] = [];
+      if (entity.tour_name) eventObservations.push(`Tour: ${entity.tour_name}`);
+      if (entity.event_date) eventObservations.push(`Date: ${entity.event_date}`);
+      if (entity.door_time) eventObservations.push(`Doors: ${entity.door_time}`);
+      if (entity.show_time) eventObservations.push(`Show: ${entity.show_time}`);
+      if (entity.ticket_price) eventObservations.push(`Tickets: ${entity.ticket_price}`);
+      if (entity.age_restriction) eventObservations.push(`Age: ${entity.age_restriction}`);
+
+      await knowledgeGraphManager.createEntities([{
+        name: eventName,
+        entityType: 'Event',
+        observations: eventObservations.length > 0 ? eventObservations : ['Event created from poster']
+      }]);
+
+      logger.info('Created Event entity', { eventName, posterType: entity.poster_type });
+    } catch {
+      // Entity might already exist
+    }
+
+    // Poster → ADVERTISES_EVENT → Event
+    relations.push({
+      from: entity.name,
+      to: eventName,
+      relationType: 'ADVERTISES_EVENT',
+      metadata: {
+        confidence: 0.9,
+        source: 'vision',
+        is_primary: true,
+        createdAt: now,
+        updatedAt: now
+      }
+    });
+  }
+
+  // Step 2: Create Artist entities and relationships
+  // Use validated artists if available, otherwise fall back to original data
+  const headlinerArtists: ValidatedArtist[] = [];
+  const supportingArtists: ValidatedArtist[] = [];
+
+  if (entity.validatedArtists && entity.validatedArtists.length > 0) {
+    // First validated artist is headliner
+    headlinerArtists.push(entity.validatedArtists[0]);
+    // Rest are supporting
+    supportingArtists.push(...entity.validatedArtists.slice(1));
+  } else {
+    // Fall back to original data
+    if (entity.headliner) {
+      headlinerArtists.push({
+        name: entity.headliner,
+        confidence: 0.5,
+        source: 'internal'
+      });
+    }
+    if (entity.supporting_acts) {
+      for (const act of entity.supporting_acts) {
+        supportingArtists.push({
+          name: act,
+          confidence: 0.5,
+          source: 'internal'
+        });
+      }
+    }
+  }
+
+  // Create headliner entities and relations
+  for (const artist of headlinerArtists) {
+    const artistEntityName = `artist_${(artist.canonicalName ?? artist.name).toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+    try {
+      const artistObs: string[] = [`Artist name: ${artist.canonicalName ?? artist.name}`];
+      if (artist.externalId) artistObs.push(`MusicBrainz ID: ${artist.externalId}`);
+      if (artist.externalUrl) artistObs.push(`External URL: ${artist.externalUrl}`);
+
+      await knowledgeGraphManager.createEntities([{
+        name: artistEntityName,
+        entityType: 'Artist',
+        observations: artistObs
+      }]);
+    } catch {
+      // Entity might already exist
+    }
+
+    // Poster → HEADLINED_ON → Artist
+    relations.push({
+      from: entity.name,
+      to: artistEntityName,
+      relationType: 'HEADLINED_ON',
+      metadata: {
+        confidence: artist.confidence,
+        source: artist.source,
+        is_primary: true,
+        createdAt: now,
+        updatedAt: now
+      }
+    });
+
+    // Artist → HEADLINED → Event (if event exists)
+    if (eventName) {
+      relations.push({
+        from: artistEntityName,
+        to: eventName,
+        relationType: 'HEADLINED',
+        metadata: {
+          confidence: artist.confidence,
+          source: artist.source,
+          is_primary: true,
+          createdAt: now,
+          updatedAt: now
+        }
+      });
+    }
+  }
+
+  // Create supporting artist entities and relations
+  for (const artist of supportingArtists) {
+    const artistEntityName = `artist_${(artist.canonicalName ?? artist.name).toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+    try {
+      const artistObs: string[] = [`Artist name: ${artist.canonicalName ?? artist.name}`];
+      if (artist.externalId) artistObs.push(`MusicBrainz ID: ${artist.externalId}`);
+      if (artist.externalUrl) artistObs.push(`External URL: ${artist.externalUrl}`);
+
+      await knowledgeGraphManager.createEntities([{
+        name: artistEntityName,
+        entityType: 'Artist',
+        observations: artistObs
+      }]);
+    } catch {
+      // Entity might already exist
+    }
+
+    // Poster → PERFORMED_ON → Artist
+    relations.push({
+      from: entity.name,
+      to: artistEntityName,
+      relationType: 'PERFORMED_ON',
+      metadata: {
+        confidence: artist.confidence,
+        source: artist.source,
+        is_primary: false,
+        createdAt: now,
+        updatedAt: now
+      }
+    });
+
+    // Artist → PERFORMED_AT → Event (if event exists)
+    if (eventName) {
+      relations.push({
+        from: artistEntityName,
+        to: eventName,
+        relationType: 'PERFORMED_AT',
+        metadata: {
+          confidence: artist.confidence,
+          source: artist.source,
+          is_primary: false,
+          createdAt: now,
+          updatedAt: now
+        }
+      });
+    }
+  }
+
+  // Step 3: Create venue and Event→Venue relation
+  if (entity.venue_name) {
+    const venueName = `venue_${entity.venue_name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+    try {
+      await knowledgeGraphManager.createEntities([{
+        name: venueName,
+        entityType: 'Venue',
+        observations: [
+          `Venue name: ${entity.venue_name}`,
+          entity.city ? `City: ${entity.city}` : '',
+          entity.state ? `State: ${entity.state}` : ''
+        ].filter(Boolean)
+      }]);
+    } catch {
+      // Entity might already exist
+    }
+
+    // Poster → ADVERTISES_VENUE → Venue
+    relations.push({
+      from: entity.name,
+      to: venueName,
+      relationType: 'ADVERTISES_VENUE',
+      metadata: {
+        confidence: 0.8,
+        source: 'vision',
+        is_primary: true,
+        createdAt: now,
+        updatedAt: now
+      }
+    });
+
+    // Event → HELD_AT → Venue (if event exists)
+    if (eventName) {
+      relations.push({
+        from: eventName,
+        to: venueName,
+        relationType: 'HELD_AT',
+        metadata: {
+          confidence: 0.8,
+          source: 'vision',
+          is_primary: true,
+          createdAt: now,
+          updatedAt: now
+        }
+      });
+    }
+  }
+
+  // Step 4: Create HAS_TYPE relations for inferred_types
+  if (entity.inferred_types?.length) {
+    for (const typeInference of entity.inferred_types) {
+      const typeName = `PosterType_${typeInference.type_key}`;
+
+      // Verify the PosterType entity exists before creating relationship
+      try {
+        const typeResult = await knowledgeGraphManager.openNodes([typeName]);
+
+        if (typeResult.entities.length === 0) {
+          // PosterType doesn't exist - force re-seed
+          logger.warn(`PosterType entity ${typeName} not found, triggering re-seed`);
+          await ensurePosterTypesSeeded(knowledgeGraphManager, true);
+        }
+      } catch (e) {
+        logger.warn(`Failed to verify PosterType ${typeName} exists`, { error: e });
+      }
+
+      relations.push({
+        from: entity.name,
+        to: typeName,
+        relationType: 'HAS_TYPE',
+        metadata: {
+          confidence: typeInference.confidence,
+          source: typeInference.source,
+          is_primary: typeInference.is_primary || false,
+          createdAt: now,
+          updatedAt: now
+        }
+      });
+    }
+  }
+
+  // Create all relations
+  if (relations.length > 0) {
+    try {
+      await knowledgeGraphManager.createRelations(relations);
+      logger.info('Created relationships', {
+        posterName: entity.name,
+        eventName,
+        relationCount: relations.length
+      });
     } catch (error) {
       logger.warn('Failed to create some relations', { error });
     }

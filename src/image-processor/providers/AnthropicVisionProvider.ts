@@ -1,5 +1,5 @@
 /**
- * Anthropic Vision Provider - Supports Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku
+ * Anthropic Vision Provider - Supports Claude 4.5 Opus, Sonnet, Haiku
  */
 
 import { VisionExtractionResult, VisionModelConfig } from '../types.js';
@@ -126,12 +126,11 @@ export class AnthropicVisionProvider extends BaseCloudVisionProvider {
   }
 
   async listModels(): Promise<string[]> {
-    // Return commonly used vision-capable Claude models
+    // Return currently available vision-capable Claude models (Claude 4.5 family)
     return [
-      'claude-3-5-sonnet-20241022',
-      'claude-3-opus-20240229',
-      'claude-3-sonnet-20240229',
-      'claude-3-haiku-20240307'
+      'claude-opus-4-5-20251101',
+      'claude-sonnet-4-5-20250929',
+      'claude-haiku-4-5-20251001'
     ];
   }
 
