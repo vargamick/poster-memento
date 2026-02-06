@@ -43,6 +43,7 @@ import { QAValidationService } from '../qa-validation/QAValidationService.js';
 import { createIterativeProcessingRoutes } from '../api/routes/iterative-processing.js';
 import { createSessionRoutes } from '../api/routes/sessions.js';
 import { createLiveRoutes } from '../api/routes/live.js';
+import { createMigrationRoutes } from '../api/routes/migration.js';
 
 // Authentication middleware
 const authenticateApiKey = (
@@ -420,7 +421,8 @@ app.get('/api', (req, res) => {
       images: '/api/v1/images',
       posters: '/api/v1/posters',
       qaValidation: '/api/v1/qa-validation',
-      iterative: '/api/v1/iterative'
+      iterative: '/api/v1/iterative',
+      migration: '/api/v1/migration'
     },
     authentication: 'X-API-Key header required',
     adminUI: '/admin',
@@ -508,6 +510,16 @@ if (process.env.LIVE_ROUTES_ENABLED !== 'false' && knowledgeGraphManager) {
     logger.info('Live routes enabled at /api/v1/live');
   } catch (error: any) {
     logger.warn('Live routes not initialized', { error: error.message });
+  }
+}
+
+// Migration routes (for migrating from old to new S3 structure)
+if (process.env.MIGRATION_ROUTES_ENABLED !== 'false') {
+  try {
+    apiV1.use('/migration', createMigrationRoutes(entityService));
+    logger.info('Migration routes enabled at /api/v1/migration');
+  } catch (error: any) {
+    logger.warn('Migration routes not initialized', { error: error.message });
   }
 }
 
