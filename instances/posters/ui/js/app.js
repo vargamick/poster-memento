@@ -26,6 +26,9 @@ class PosterApp {
     this.sortDirection = 'desc';
     this.imageUrls = {}; // Cache: hash -> presigned URL
 
+    // Filter state for clickable links (artist, venue, type)
+    this.activeFilter = null; // { type: 'artist'|'venue'|'posterType', value: string }
+
     // API client
     this.api = createAPI();
 
@@ -68,8 +71,128 @@ class PosterApp {
     this.bindEvents();
     this.bindTabEvents();
 
+    // Create filter bar UI
+    this.createFilterBar();
+
+    // Parse URL for initial filter state
+    this.parseUrlFilters();
+
     // Initial load
     this.loadPosters();
+  }
+
+  /**
+   * Create the filter bar UI element (inserted before table)
+   */
+  createFilterBar() {
+    const filterBar = document.createElement('div');
+    filterBar.id = 'filter-bar';
+    filterBar.className = 'filter-bar hidden';
+    filterBar.innerHTML = `
+      <div class="filter-bar-content">
+        <span class="filter-label">Filtering by:</span>
+        <span class="filter-type" id="filter-type-label"></span>
+        <span class="filter-value" id="filter-value-label"></span>
+        <button class="filter-clear-btn" id="filter-clear-btn" title="Clear filter">&times;</button>
+      </div>
+    `;
+
+    // Insert before the table container
+    const tableContainer = this.elements.tableContainer;
+    tableContainer.parentNode.insertBefore(filterBar, tableContainer);
+
+    // Store reference
+    this.elements.filterBar = filterBar;
+    this.elements.filterTypeLabel = document.getElementById('filter-type-label');
+    this.elements.filterValueLabel = document.getElementById('filter-value-label');
+    this.elements.filterClearBtn = document.getElementById('filter-clear-btn');
+
+    // Bind clear button
+    this.elements.filterClearBtn.addEventListener('click', () => this.clearFilter());
+  }
+
+  /**
+   * Parse URL query params for initial filter state
+   */
+  parseUrlFilters() {
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.has('artist')) {
+      this.activeFilter = { type: 'artist', value: params.get('artist') };
+    } else if (params.has('venue')) {
+      this.activeFilter = { type: 'venue', value: params.get('venue') };
+    } else if (params.has('posterType')) {
+      this.activeFilter = { type: 'posterType', value: params.get('posterType') };
+    }
+
+    if (this.activeFilter) {
+      this.updateFilterBar();
+    }
+  }
+
+  /**
+   * Update URL with current filter state
+   */
+  updateUrlWithFilter() {
+    const url = new URL(window.location.href);
+
+    // Clear existing filter params
+    url.searchParams.delete('artist');
+    url.searchParams.delete('venue');
+    url.searchParams.delete('posterType');
+
+    // Set new filter param if active
+    if (this.activeFilter) {
+      url.searchParams.set(this.activeFilter.type, this.activeFilter.value);
+    }
+
+    // Update URL without reload
+    window.history.pushState({}, '', url);
+  }
+
+  /**
+   * Set a filter and reload posters
+   */
+  setFilter(type, value) {
+    this.activeFilter = { type, value };
+    this.currentPage = 1;
+    this.currentSearch = ''; // Clear search when filtering
+    this.elements.searchInput.value = '';
+    this.updateFilterBar();
+    this.updateUrlWithFilter();
+    this.loadPosters();
+  }
+
+  /**
+   * Clear the active filter
+   */
+  clearFilter() {
+    this.activeFilter = null;
+    this.currentPage = 1;
+    this.updateFilterBar();
+    this.updateUrlWithFilter();
+    this.loadPosters();
+  }
+
+  /**
+   * Update the filter bar UI to reflect current state
+   */
+  updateFilterBar() {
+    if (this.activeFilter) {
+      this.elements.filterBar.classList.remove('hidden');
+
+      // Human-friendly type labels
+      const typeLabels = {
+        artist: 'Artist',
+        venue: 'Venue',
+        posterType: 'Type'
+      };
+
+      this.elements.filterTypeLabel.textContent = typeLabels[this.activeFilter.type] || this.activeFilter.type;
+      this.elements.filterValueLabel.textContent = this.activeFilter.value;
+    } else {
+      this.elements.filterBar.classList.add('hidden');
+    }
   }
 
   /**
@@ -262,9 +385,12 @@ class PosterApp {
       let result;
       const offset = (this.currentPage - 1) * this.limit;
 
-      if (this.currentSearch) {
-        // Use search endpoint
-        result = await this.api.searchPosters(this.currentSearch, {
+      // Determine search query - either from search input or active filter
+      const searchQuery = this.currentSearch || (this.activeFilter ? this.activeFilter.value : '');
+
+      if (searchQuery) {
+        // Use search endpoint for both search and filter
+        result = await this.api.searchPosters(searchQuery, {
           limit: this.limit,
           strategy: this.searchStrategy
         });
@@ -279,6 +405,12 @@ class PosterApp {
         } else {
           this.posters = [];
           this.totalPosters = 0;
+        }
+
+        // If filtering, apply client-side filtering for more precise results
+        if (this.activeFilter && !this.currentSearch) {
+          this.posters = this.applyClientFilter(this.posters);
+          this.totalPosters = this.posters.length;
         }
       } else {
         // Use entities endpoint with sort params
@@ -314,6 +446,46 @@ class PosterApp {
       this.isLoading = false;
       this.showLoading(false);
     }
+  }
+
+  /**
+   * Apply client-side filter to narrow down search results
+   */
+  applyClientFilter(posters) {
+    if (!this.activeFilter) return posters;
+
+    const { type, value } = this.activeFilter;
+    const lowerValue = value.toLowerCase();
+
+    return posters.filter(poster => {
+      switch (type) {
+        case 'artist': {
+          // Check headliner and supporting acts
+          const parsed = this.parseObservations(poster);
+          const headliner = (poster.headliner || parsed.headliner || '').toLowerCase();
+          const supporting = poster.supporting_acts || [];
+          const supportingStr = (parsed.supporting_acts || '').toLowerCase();
+
+          if (headliner.includes(lowerValue)) return true;
+          if (supporting.some(s => s.toLowerCase().includes(lowerValue))) return true;
+          if (supportingStr.includes(lowerValue)) return true;
+          return false;
+        }
+
+        case 'venue': {
+          const venueName = this.getVenueName(poster)?.toLowerCase() || '';
+          return venueName.includes(lowerValue);
+        }
+
+        case 'posterType': {
+          const posterType = this.getPosterType(poster)?.toLowerCase() || '';
+          return posterType === lowerValue;
+        }
+
+        default:
+          return true;
+      }
+    });
   }
 
   /**
@@ -579,6 +751,19 @@ class PosterApp {
         });
       }
     });
+
+    // Add click handlers for entity links (artist, venue, type)
+    this.elements.posterTbody.querySelectorAll('.entity-link').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const type = link.dataset.type;
+        const value = link.dataset.value;
+        if (type && value) {
+          this.setFilter(type, value);
+        }
+      });
+    });
   }
 
   /**
@@ -618,13 +803,23 @@ class PosterApp {
       </div>
     `;
 
+    // Make type badge clickable
+    const typeBadgeHtml = posterType
+      ? `<a href="#" class="entity-link type-link type-badge ${posterType}" data-type="posterType" data-value="${this.escapeHtml(posterType)}">${this.escapeHtml(posterType)}</a>`
+      : `<span class="type-badge missing">MISSING TYPE</span>`;
+
+    // Make venue clickable if present
+    const venueHtml = venueName !== '-'
+      ? `<a href="#" class="entity-link venue-link" data-type="venue" data-value="${this.escapeHtml(venueName)}">${this.escapeHtml(venueName)}</a>`
+      : '-';
+
     return `
       <tr data-index="${index}">
         <td class="td-thumbnail">${thumbnailHtml}</td>
         <td class="td-name">${nameHtml}</td>
-        <td><span class="type-badge ${posterType || 'missing'}">${posterType ? this.escapeHtml(posterType) : 'MISSING TYPE'}</span></td>
+        <td>${typeBadgeHtml}</td>
         <td class="artists-cell">${displayInfo.peopleHtml}</td>
-        <td>${this.escapeHtml(venueName)}</td>
+        <td class="venue-cell">${venueHtml}</td>
         <td>${this.escapeHtml(eventDate)}</td>
         <td>${createdAt}</td>
       </tr>
@@ -675,20 +870,23 @@ class PosterApp {
   }
 
   /**
-   * Render people column for film posters (director/cast)
+   * Render people column for film posters (director/cast) with clickable links
    */
   renderFilmPeople(poster) {
     const metadata = poster.metadata || {};
     const parts = [];
 
     if (metadata.director) {
-      parts.push(`<span class="headliner">Dir: ${this.escapeHtml(metadata.director)}</span>`);
+      parts.push(`<span class="director-label">Dir:</span> <a href="#" class="entity-link artist-link headliner" data-type="artist" data-value="${this.escapeHtml(metadata.director)}">${this.escapeHtml(metadata.director)}</a>`);
     }
 
     const cast = metadata.cast || metadata.starring || [];
     if (cast.length > 0) {
       const displayCast = cast.slice(0, 3);
-      parts.push(`<span class="supporting">${displayCast.map(c => this.escapeHtml(c)).join(', ')}</span>`);
+      const castLinks = displayCast.map(c =>
+        `<a href="#" class="entity-link artist-link supporting" data-type="artist" data-value="${this.escapeHtml(c)}">${this.escapeHtml(c)}</a>`
+      ).join(', ');
+      parts.push(`<span class="supporting-group">${castLinks}</span>`);
       if (cast.length > 3) {
         parts.push(`<span class="more-artists">+${cast.length - 3} more</span>`);
       }
@@ -698,25 +896,26 @@ class PosterApp {
   }
 
   /**
-   * Render people column for exhibition posters (artist)
+   * Render people column for exhibition posters (artist) with clickable links
    */
   renderExhibitionPeople(poster) {
     const metadata = poster.metadata || {};
     const parts = [];
 
     if (metadata.artist || metadata.exhibiting_artist) {
-      parts.push(`<span class="headliner">${this.escapeHtml(metadata.artist || metadata.exhibiting_artist)}</span>`);
+      const artistName = metadata.artist || metadata.exhibiting_artist;
+      parts.push(`<a href="#" class="entity-link artist-link headliner" data-type="artist" data-value="${this.escapeHtml(artistName)}">${this.escapeHtml(artistName)}</a>`);
     }
 
     if (metadata.curator) {
-      parts.push(`<span class="supporting">Curator: ${this.escapeHtml(metadata.curator)}</span>`);
+      parts.push(`<span class="curator-label">Curator:</span> <a href="#" class="entity-link artist-link supporting" data-type="artist" data-value="${this.escapeHtml(metadata.curator)}">${this.escapeHtml(metadata.curator)}</a>`);
     }
 
     return parts.length > 0 ? parts.join('<br>') : '-';
   }
 
   /**
-   * Render artists column content
+   * Render artists column content with clickable links
    */
   renderArtists(poster) {
     const parsed = this.parseObservations(poster);
@@ -733,7 +932,7 @@ class PosterApp {
     }
 
     if (headliner) {
-      parts.push(`<span class="headliner">${this.escapeHtml(headliner)}</span>`);
+      parts.push(`<a href="#" class="entity-link artist-link headliner" data-type="artist" data-value="${this.escapeHtml(headliner)}">${this.escapeHtml(headliner)}</a>`);
     }
 
     // Get supporting acts
@@ -748,8 +947,10 @@ class PosterApp {
 
     if (supporting.length > 0) {
       const displaySupporting = supporting.slice(0, 2);
-      const supportingText = displaySupporting.join(', ');
-      parts.push(`<span class="supporting">${this.escapeHtml(supportingText)}</span>`);
+      const supportingLinks = displaySupporting.map(artist =>
+        `<a href="#" class="entity-link artist-link supporting" data-type="artist" data-value="${this.escapeHtml(artist)}">${this.escapeHtml(artist)}</a>`
+      ).join(', ');
+      parts.push(`<span class="supporting-group">${supportingLinks}</span>`);
 
       if (supporting.length > 2) {
         parts.push(`<span class="more-artists">+${supporting.length - 2} more</span>`);
