@@ -45,43 +45,10 @@
         "maxTokens": 2048
       }
     },
-    "qwen-vl-vllm": {
-      "provider": "vllm",
-      "baseUrl": "http://localhost:8000",
-      "model": "Qwen/Qwen2.5-VL-7B-Instruct",
-      "description": "Qwen 2.5 VL - Strong structured output",
-      "parameters": "8.3B",
-      "options": {
-        "temperature": 0.1,
-        "maxTokens": 2048
-      }
-    },
-    "pixtral-vllm": {
-      "provider": "vllm",
-      "baseUrl": "http://localhost:8000",
-      "model": "mistralai/Pixtral-12B-2409",
-      "description": "Pixtral 12B - Multilingual vision model",
-      "parameters": "12.7B",
-      "options": {
-        "temperature": 0.1,
-        "maxTokens": 2048
-      }
-    },
-    "smoldocling-local": {
-      "provider": "transformers",
-      "baseUrl": "http://localhost:8001",
-      "model": "ds4sd/SmolDocling-256M-preview",
-      "description": "SmolDocling - Fast CPU processing, document understanding",
-      "parameters": "256M",
-      "options": {
-        "temperature": 0.1,
-        "maxTokens": 1024
-      }
-    },
-    "gpt-5.2": {
+    "gpt-4o": {
       "provider": "openai",
-      "model": "gpt-5.2",
-      "description": "OpenAI GPT-5.2 - Latest flagship with vision, reasoning & multimodal",
+      "model": "gpt-4o",
+      "description": "OpenAI GPT-4o - Latest flagship with vision & multimodal",
       "parameters": "cloud",
       "options": {
         "temperature": 0.1,
@@ -90,54 +57,74 @@
         "maxRetries": 3
       }
     },
-    "gpt-5": {
+    "gpt-4o-mini": {
       "provider": "openai",
-      "model": "gpt-5",
-      "description": "OpenAI GPT-5 - Flagship model for coding, reasoning & agentic tasks",
+      "model": "gpt-4o-mini",
+      "description": "OpenAI GPT-4o Mini - Fast & affordable vision model",
       "parameters": "cloud",
       "options": {
         "temperature": 0.1,
         "maxTokens": 4096,
-        "timeout": 90000,
+        "timeout": 60000,
         "maxRetries": 3
       }
     },
-    "claude-opus-4.6": {
+    "claude-opus-4": {
       "provider": "anthropic",
-      "model": "claude-opus-4-6",
-      "description": "Claude Opus 4.6 - Most intelligent, exceptional coding & reasoning",
+      "model": "claude-opus-4-20250514",
+      "description": "Claude Opus 4 - Most intelligent, exceptional reasoning",
       "parameters": "cloud",
       "options": {
         "temperature": 0.1,
         "maxTokens": 4096,
         "timeout": 90000,
         "maxRetries": 3
+      }
+    },
+    "claude-sonnet-4": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514",
+      "description": "Claude Sonnet 4 - Best balance of speed & intelligence",
+      "parameters": "cloud",
+      "options": {
+        "temperature": 0.1,
+        "maxTokens": 4096
       }
     },
     "claude-sonnet-4.5": {
       "provider": "anthropic",
-      "model": "claude-sonnet-4-5",
-      "description": "Claude Sonnet 4.5 - Best speed & intelligence balance",
+      "model": "claude-sonnet-4-5-20250929",
+      "description": "Claude Sonnet 4.5 - Latest with extended thinking",
       "parameters": "cloud",
       "options": {
         "temperature": 0.1,
         "maxTokens": 4096
       }
     },
-    "claude-haiku-4.5": {
+    "claude-haiku-4": {
       "provider": "anthropic",
-      "model": "claude-haiku-4-5",
-      "description": "Claude Haiku 4.5 - Fastest with near-frontier intelligence",
+      "model": "claude-haiku-4-20250514",
+      "description": "Claude Haiku 4 - Fastest with strong intelligence",
       "parameters": "cloud",
       "options": {
         "temperature": 0.1,
         "maxTokens": 4096
       }
     },
-    "gemini-3-pro": {
+    "gemini-2.0-flash": {
       "provider": "google",
-      "model": "gemini-3-pro-preview",
-      "description": "Gemini 3 Pro - State-of-the-art reasoning & multimodal, 1M context",
+      "model": "gemini-2.0-flash",
+      "description": "Gemini 2.0 Flash - Fast multimodal with agentic capabilities",
+      "parameters": "cloud",
+      "options": {
+        "temperature": 0.1,
+        "maxTokens": 4096
+      }
+    },
+    "gemini-1.5-pro": {
+      "provider": "google",
+      "model": "gemini-1.5-pro-latest",
+      "description": "Gemini 1.5 Pro - Long context (2M tokens), strong reasoning",
       "parameters": "cloud",
       "options": {
         "temperature": 0.1,
@@ -146,10 +133,10 @@
         "maxRetries": 3
       }
     },
-    "gemini-3-flash": {
+    "gemini-1.5-flash": {
       "provider": "google",
-      "model": "gemini-3-flash-preview",
-      "description": "Gemini 3 Flash - Fast with agentic vision capabilities",
+      "model": "gemini-1.5-flash-latest",
+      "description": "Gemini 1.5 Flash - Fast & efficient multimodal",
       "parameters": "cloud",
       "options": {
         "temperature": 0.1,
