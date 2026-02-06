@@ -153,36 +153,52 @@ Return JSON:
   "festival_name": "name of festival"
 }`,
 
-  album: `Extract artist information from this RELEASE/ALBUM poster.
+  album: `Extract artist and release information from this ALBUM/RELEASE poster.
 
 Look for:
-- ARTIST NAME: Who released this album/single
-- ALBUM TITLE: Name of the release
-- RECORD LABEL: Label releasing it
+- ARTIST NAME: Who released this album/single (main artist)
+- ALBUM TITLE: Name of the release (usually prominent text)
+- RELEASE TYPE: album, single, EP, compilation
+- RECORD LABEL: Label releasing it (often at bottom in small text)
 - FEATURED ARTISTS: "feat." or "ft." credits
+- STREAMING PLATFORMS: Spotify, Apple Music, etc. logos or mentions
+
+IMPORTANT: The album title is different from the artist name!
+- "Artist Name" is WHO made it
+- "Album Title" is WHAT they made
 
 Return JSON:
 {
-  "headliner": "main artist",
-  "album_title": "album/single name",
+  "headliner": "main artist name",
+  "album_title": "album/single/EP name",
+  "release_type": "album|single|EP|compilation",
   "record_label": "label name",
-  "featured_artists": ["feat. artist1", "feat. artist2"]
+  "featured_artists": ["feat. artist1", "feat. artist2"],
+  "streaming_platforms": ["spotify", "apple music"]
 }`,
 
-  film: `Extract credits from this FILM poster.
+  film: `Extract credits and details from this FILM poster.
 
 Look for:
-- DIRECTOR: "Directed by" or "A Film by"
-- LEAD ACTORS: Starring credits (usually top billing)
-- SUPPORTING CAST: Additional actors listed
-- STUDIO: Production company
+- DIRECTOR: "Directed by", "A Film by", or director credit
+- LEAD ACTORS: Starring credits (usually top billing, largest names)
+- SUPPORTING CAST: Additional actors listed (smaller text)
+- STUDIO: Production company (often at bottom)
+- MPAA RATING: G, PG, PG-13, R, NC-17 (usually in a box)
+- TAGLINE: The movie's catchphrase or slogan
+
+FORMATTING RULES:
+- Each actor MUST be a SEPARATE entry in the arrays
+- Do NOT concatenate multiple actor names
 
 Return JSON:
 {
   "director": "director name",
-  "lead_actors": ["actor1", "actor2"],
-  "supporting_cast": ["actor3", "actor4"],
-  "studio": "production company"
+  "lead_actors": ["lead actor 1", "lead actor 2"],
+  "supporting_cast": ["supporting actor 1", "supporting actor 2"],
+  "studio": "production company",
+  "mpaa_rating": "G|PG|PG-13|R|NC-17",
+  "tagline": "movie tagline if visible"
 }`,
 
   theater: `Extract credits from this THEATER poster.

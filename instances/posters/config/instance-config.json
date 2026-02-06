@@ -56,10 +56,10 @@
       ]
     },
     {
-      "name": "Release",
+      "name": "Album",
       "description": "A music release (album, single, EP)",
       "required_fields": ["name", "entityType", "title"],
-      "optional_fields": ["release_type", "release_date", "release_year", "tracks", "bonus_content"]
+      "optional_fields": ["release_type", "release_date", "release_year", "tracks", "bonus_content", "record_label", "streaming_platforms"]
     },
     {
       "name": "Organization",
@@ -122,10 +122,10 @@
       "cardinality": "one-to-many"
     },
     {
-      "name": "ADVERTISES_RELEASE",
-      "description": "Poster advertises this release",
+      "name": "ADVERTISES_ALBUM",
+      "description": "Poster advertises this album/release",
       "from_entity_types": ["Poster"],
-      "to_entity_types": ["Release"],
+      "to_entity_types": ["Album"],
       "cardinality": "one-to-many"
     },
     {
@@ -158,17 +158,35 @@
     },
     {
       "name": "RELEASED_BY",
-      "description": "Release was released by this organization (label)",
-      "from_entity_types": ["Release"],
+      "description": "Album was released by this organization (label)",
+      "from_entity_types": ["Album"],
       "to_entity_types": ["Organization"],
       "cardinality": "many-to-one"
     },
     {
       "name": "CREATED_BY",
-      "description": "Release was created by this artist",
-      "from_entity_types": ["Release"],
+      "description": "Album was created by this artist",
+      "from_entity_types": ["Album"],
       "to_entity_types": ["Artist"],
       "cardinality": "many-to-many"
+    },
+    {
+      "name": "DIRECTED_BY",
+      "description": "Film was directed by this artist/person",
+      "from_entity_types": ["Poster"],
+      "to_entity_types": ["Artist"],
+      "cardinality": "many-to-one"
+    },
+    {
+      "name": "STARS",
+      "description": "Film stars this actor/actress",
+      "from_entity_types": ["Poster"],
+      "to_entity_types": ["Artist"],
+      "cardinality": "one-to-many",
+      "metadata_schema": {
+        "billing_order": "number",
+        "role": "string"
+      }
     },
     {
       "name": "HAS_TYPE",

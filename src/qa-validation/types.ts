@@ -159,7 +159,7 @@ export interface QAJobStatus {
 // Configuration Types
 // ============================================================================
 
-export type ValidatorName = 'artist' | 'venue' | 'date' | 'release' | 'poster_type';
+export type ValidatorName = 'artist' | 'venue' | 'date' | 'release' | 'poster_type' | 'film';
 export type PosterType = 'concert' | 'festival' | 'comedy' | 'theater' | 'film' | 'album' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
 
 /**

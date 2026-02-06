@@ -67,12 +67,12 @@
       }
     },
 
-    "Release": {
+    "Album": {
       "type": "object",
       "description": "A music release (album, single, EP, etc.)",
       "required": ["entityType", "title", "release_type"],
       "properties": {
-        "entityType": { "const": "Release" },
+        "entityType": { "const": "Album" },
         "id": { "type": "string" },
         "title": { "type": "string" },
         "release_type": {
@@ -80,9 +80,14 @@
           "enum": ["album", "single", "EP", "compilation", "live_album", "DVD", "box_set", "other"]
         },
         "artist_id": { "type": "string", "description": "Reference to Artist" },
-        "label_id": { "type": "string", "description": "Reference to Organization" },
+        "label_id": { "type": "string", "description": "Reference to Organization (record label)" },
         "release_date": { "type": "string", "format": "date" },
         "release_year": { "type": "integer" },
+        "record_label": { "type": "string" },
+        "streaming_platforms": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "tracks": {
           "type": "array",
           "items": { "type": "string" }
@@ -184,9 +189,9 @@
       "description": "Event details if poster_type is 'event' or 'hybrid'"
     },
 
-    "release": {
-      "$ref": "#/definitions/Release",
-      "description": "Release details if poster_type is 'release' or 'hybrid'"
+    "album": {
+      "$ref": "#/definitions/Album",
+      "description": "Album details if poster_type is 'album' or 'hybrid'"
     },
 
     "venue": {
@@ -258,7 +263,7 @@
         "properties": { "poster_type": { "const": "album" } }
       },
       "then": {
-        "required": ["release"]
+        "required": ["album"]
       }
     },
     {
@@ -266,7 +271,7 @@
         "properties": { "poster_type": { "const": "hybrid" } }
       },
       "then": {
-        "required": ["event", "release"]
+        "required": ["event", "album"]
       }
     }
   ]

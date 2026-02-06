@@ -16,7 +16,9 @@ import {
   ProcessingContext,
   TypePhaseResult,
   ArtistPhaseResult,
+  ArtistMatch,
   VenuePhaseResult,
+  VenueMatch,
   EventPhaseResult,
   AssemblyPhaseResult,
   DEFAULT_ITERATIVE_OPTIONS,
@@ -390,11 +392,12 @@ export class IterativeProcessor {
             isNew: true,
           });
 
-          // Create related entities (Artist, Venue) and relationships
+          // Create related entities based on poster type
           const relatedEntities = await this.createRelatedEntities(
             entity,
             artistResult,
-            venueResult
+            venueResult,
+            eventResult
           );
 
           entitiesCreated.push(...relatedEntities.entities);
@@ -447,12 +450,13 @@ export class IterativeProcessor {
   }
 
   /**
-   * Create related entities (Artist, Venue) and relationships
+   * Create related entities and relationships based on poster type
    */
   private async createRelatedEntities(
     posterEntity: PosterEntity,
     artistResult: ArtistPhaseResult,
-    venueResult: VenuePhaseResult
+    venueResult: VenuePhaseResult,
+    eventResult?: EventPhaseResult
   ): Promise<{
     entities: AssemblyPhaseResult['entitiesCreated'];
     relationships: AssemblyPhaseResult['relationshipsCreated'];
@@ -465,156 +469,520 @@ export class IterativeProcessor {
     }
 
     try {
-      // Create headliner artist entity
-      if (artistResult.headliner) {
-        const artistName = artistResult.headliner.validatedName ?? artistResult.headliner.extractedName;
-        const artistId = `artist_${artistName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+      const posterType = posterEntity.poster_type;
 
-        // Check if artist exists
-        const existingArtist = await this.entityService.getEntity(artistId);
-        const isNew = !existingArtist.success;
-
-        if (isNew) {
-          await this.entityService.createEntities([{
-            name: artistId,
-            entityType: 'Artist',
-            observations: [
-              `Name: ${artistName}`,
-              artistResult.headliner.externalId
-                ? `MusicBrainz ID: ${artistResult.headliner.externalId}`
-                : '',
-            ].filter(o => o),
-          }]);
-        }
-
-        entities.push({ type: 'Artist', name: artistId, isNew });
-
-        // Create HEADLINED_ON relationship
-        await this.relationService.createRelations([{
-          from: artistId,
-          to: posterEntity.name,
-          relationType: 'HEADLINED_ON',
-        }]);
-
-        relationships.push({
-          type: 'HEADLINED_ON',
-          from: artistId,
-          to: posterEntity.name,
-        });
-      }
-
-      // Create supporting artist entities
-      if (artistResult.supportingActs) {
-        for (const act of artistResult.supportingActs) {
-          const actName = act.validatedName ?? act.extractedName;
-          const actId = `artist_${actName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
-
-          const existingArtist = await this.entityService.getEntity(actId);
-          const isNew = !existingArtist.success;
-
-          if (isNew) {
-            await this.entityService.createEntities([{
-              name: actId,
-              entityType: 'Artist',
-              observations: [`Name: ${actName}`],
-            }]);
+      // Route to type-specific entity creation
+      switch (posterType) {
+        case 'album':
+        case 'hybrid':
+          await this.createAlbumEntities(
+            posterEntity, artistResult, eventResult, entities, relationships
+          );
+          if (posterType === 'hybrid') {
+            // Hybrid also creates event entities
+            await this.createEventEntities(
+              posterEntity, artistResult, venueResult, eventResult, entities, relationships
+            );
           }
+          break;
 
-          entities.push({ type: 'Artist', name: actId, isNew });
+        case 'film':
+          await this.createFilmEntities(
+            posterEntity, artistResult, entities, relationships
+          );
+          break;
 
-          await this.relationService.createRelations([{
-            from: actId,
-            to: posterEntity.name,
-            relationType: 'PERFORMED_ON',
-          }]);
+        case 'concert':
+        case 'festival':
+        case 'comedy':
+        case 'theater':
+          await this.createEventEntities(
+            posterEntity, artistResult, venueResult, eventResult, entities, relationships
+          );
+          break;
 
-          relationships.push({
-            type: 'PERFORMED_ON',
-            from: actId,
-            to: posterEntity.name,
-          });
-        }
+        default:
+          // For promo, exhibition, unknown - use basic artist/venue creation
+          await this.createBasicEntities(
+            posterEntity, artistResult, venueResult, entities, relationships
+          );
       }
 
-      // Create venue entity
-      if (venueResult.venue) {
-        const venueName = venueResult.venue.validatedName ?? venueResult.venue.extractedName;
-        const venueId = venueResult.venue.existingVenueId ||
-          `venue_${venueName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+      // Create HAS_TYPE relationships for all poster types
+      await this.createTypeRelationships(posterEntity, entities, relationships);
 
-        const existingVenue = await this.entityService.getEntity(venueId);
-        const isNew = !existingVenue.success;
-
-        if (isNew) {
-          await this.entityService.createEntities([{
-            name: venueId,
-            entityType: 'Venue',
-            observations: [
-              `Name: ${venueName}`,
-              venueResult.venue.city ? `City: ${venueResult.venue.city}` : '',
-              venueResult.venue.state ? `State: ${venueResult.venue.state}` : '',
-            ].filter(o => o),
-          }]);
-        }
-
-        entities.push({ type: 'Venue', name: venueId, isNew });
-
-        await this.relationService.createRelations([{
-          from: posterEntity.name,
-          to: venueId,
-          relationType: 'ADVERTISES_VENUE',
-        }]);
-
-        relationships.push({
-          type: 'ADVERTISES_VENUE',
-          from: posterEntity.name,
-          to: venueId,
-        });
-      }
-
-      // Create HAS_TYPE relationships for inferred types
-      if (posterEntity.inferred_types) {
-        for (const typeInference of posterEntity.inferred_types) {
-          const typeId = `PosterType_${typeInference.type_key}`;
-
-          // Ensure type entity exists
-          const existingType = await this.entityService.getEntity(typeId);
-          if (!existingType.success) {
-            await this.entityService.createEntities([{
-              name: typeId,
-              entityType: 'PosterType',
-              observations: [`Type: ${typeInference.type_key}`],
-            }]);
-            entities.push({ type: 'PosterType', name: typeId, isNew: true });
-          }
-
-          const now = Date.now();
-          await this.relationService.createRelations([{
-            from: posterEntity.name,
-            to: typeId,
-            relationType: 'HAS_TYPE',
-            confidence: typeInference.confidence,
-            metadata: {
-              createdAt: now,
-              updatedAt: now,
-              source: typeInference.source,
-              evidence: typeInference.evidence,
-              is_primary: typeInference.is_primary,
-            },
-          }]);
-
-          relationships.push({
-            type: 'HAS_TYPE',
-            from: posterEntity.name,
-            to: typeId,
-          });
-        }
-      }
     } catch (error) {
       console.error('[ASSEMBLY] Error creating related entities:', error);
     }
 
     return { entities, relationships };
+  }
+
+  /**
+   * Create Album entity and relationships for album/release posters
+   */
+  private async createAlbumEntities(
+    posterEntity: PosterEntity,
+    artistResult: ArtistPhaseResult,
+    eventResult: EventPhaseResult | undefined,
+    entities: AssemblyPhaseResult['entitiesCreated'],
+    relationships: AssemblyPhaseResult['relationshipsCreated']
+  ): Promise<void> {
+    if (!this.entityService || !this.relationService) return;
+
+    // Create artist entity first
+    let headlinerArtistId: string | undefined;
+    if (artistResult.headliner) {
+      headlinerArtistId = await this.createArtistEntity(artistResult.headliner, entities);
+    }
+
+    // Create Album entity
+    const albumTitle = posterEntity.title || artistResult.recordLabel || posterEntity.name;
+    const albumId = `album_${albumTitle.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now().toString(36)}`;
+
+    const albumObservations: string[] = [
+      `Title: ${albumTitle}`,
+      posterEntity.year ? `Release Year: ${posterEntity.year}` : '',
+      artistResult.recordLabel ? `Record Label: ${artistResult.recordLabel}` : '',
+      eventResult?.eventDate?.rawValue ? `Release Date: ${eventResult.eventDate.rawValue}` : '',
+    ].filter(o => o);
+
+    await this.entityService.createEntities([{
+      name: albumId,
+      entityType: 'Album',
+      observations: albumObservations,
+    }]);
+
+    entities.push({ type: 'Album', name: albumId, isNew: true });
+
+    // Create ADVERTISES_ALBUM relationship (Poster → Album)
+    await this.relationService.createRelations([{
+      from: posterEntity.name,
+      to: albumId,
+      relationType: 'ADVERTISES_ALBUM',
+    }]);
+    relationships.push({ type: 'ADVERTISES_ALBUM', from: posterEntity.name, to: albumId });
+
+    // Create CREATED_BY relationship (Album → Artist)
+    if (headlinerArtistId) {
+      await this.relationService.createRelations([{
+        from: albumId,
+        to: headlinerArtistId,
+        relationType: 'CREATED_BY',
+      }]);
+      relationships.push({ type: 'CREATED_BY', from: albumId, to: headlinerArtistId });
+
+      // Also create HEADLINED_ON for the poster
+      await this.relationService.createRelations([{
+        from: headlinerArtistId,
+        to: posterEntity.name,
+        relationType: 'HEADLINED_ON',
+      }]);
+      relationships.push({ type: 'HEADLINED_ON', from: headlinerArtistId, to: posterEntity.name });
+    }
+
+    // Create Organization (record label) and RELEASED_BY relationship
+    if (artistResult.recordLabel) {
+      const labelId = `org_${artistResult.recordLabel.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+      const existingLabel = await this.entityService.getEntity(labelId);
+      if (!existingLabel.success) {
+        await this.entityService.createEntities([{
+          name: labelId,
+          entityType: 'Organization',
+          observations: [
+            `Name: ${artistResult.recordLabel}`,
+            'Type: record_label',
+          ],
+        }]);
+        entities.push({ type: 'Organization', name: labelId, isNew: true });
+      } else {
+        entities.push({ type: 'Organization', name: labelId, isNew: false });
+      }
+
+      await this.relationService.createRelations([{
+        from: albumId,
+        to: labelId,
+        relationType: 'RELEASED_BY',
+      }]);
+      relationships.push({ type: 'RELEASED_BY', from: albumId, to: labelId });
+    }
+
+    // Create featured artists
+    if (artistResult.supportingActs) {
+      for (const featArtist of artistResult.supportingActs) {
+        const featArtistId = await this.createArtistEntity(featArtist, entities);
+
+        const now = Date.now();
+        await this.relationService.createRelations([{
+          from: albumId,
+          to: featArtistId,
+          relationType: 'CREATED_BY',
+          metadata: { role: 'featured', createdAt: now, updatedAt: now },
+        }]);
+        relationships.push({ type: 'CREATED_BY', from: albumId, to: featArtistId });
+      }
+    }
+  }
+
+  /**
+   * Create Event entity and relationships for concert/festival/comedy/theater posters
+   */
+  private async createEventEntities(
+    posterEntity: PosterEntity,
+    artistResult: ArtistPhaseResult,
+    venueResult: VenuePhaseResult,
+    eventResult: EventPhaseResult | undefined,
+    entities: AssemblyPhaseResult['entitiesCreated'],
+    relationships: AssemblyPhaseResult['relationshipsCreated']
+  ): Promise<void> {
+    if (!this.entityService || !this.relationService) return;
+
+    // Create Venue entity first
+    let venueId: string | undefined;
+    if (venueResult.venue) {
+      venueId = await this.createVenueEntity(venueResult.venue, entities);
+
+      // Create ADVERTISES_VENUE relationship
+      await this.relationService.createRelations([{
+        from: posterEntity.name,
+        to: venueId,
+        relationType: 'ADVERTISES_VENUE',
+      }]);
+      relationships.push({ type: 'ADVERTISES_VENUE', from: posterEntity.name, to: venueId });
+    }
+
+    // Create headliner artist
+    let headlinerArtistId: string | undefined;
+    if (artistResult.headliner) {
+      headlinerArtistId = await this.createArtistEntity(artistResult.headliner, entities);
+
+      // Create HEADLINED_ON relationship (Artist → Poster)
+      await this.relationService.createRelations([{
+        from: headlinerArtistId,
+        to: posterEntity.name,
+        relationType: 'HEADLINED_ON',
+      }]);
+      relationships.push({ type: 'HEADLINED_ON', from: headlinerArtistId, to: posterEntity.name });
+    }
+
+    // Create Event entity
+    const eventName = artistResult.tourName ||
+      (artistResult.headliner?.extractedName ? `${artistResult.headliner.extractedName} Live` : posterEntity.name);
+    const eventId = `event_${eventName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now().toString(36)}`;
+
+    const eventObservations: string[] = [
+      `Event Name: ${eventName}`,
+      `Event Type: ${posterEntity.poster_type}`,
+      eventResult?.eventDate?.rawValue ? `Date: ${eventResult.eventDate.rawValue}` : '',
+      eventResult?.year ? `Year: ${eventResult.year}` : '',
+      eventResult?.timeDetails?.doorTime ? `Door Time: ${eventResult.timeDetails.doorTime}` : '',
+      eventResult?.timeDetails?.showTime ? `Show Time: ${eventResult.timeDetails.showTime}` : '',
+      eventResult?.ticketPrice ? `Ticket Price: ${eventResult.ticketPrice}` : '',
+      eventResult?.ageRestriction ? `Age Restriction: ${eventResult.ageRestriction}` : '',
+      artistResult.tourName ? `Tour: ${artistResult.tourName}` : '',
+    ].filter(o => o);
+
+    await this.entityService.createEntities([{
+      name: eventId,
+      entityType: 'Event',
+      observations: eventObservations,
+    }]);
+
+    entities.push({ type: 'Event', name: eventId, isNew: true });
+
+    // Create ADVERTISES_EVENT relationship (Poster → Event)
+    await this.relationService.createRelations([{
+      from: posterEntity.name,
+      to: eventId,
+      relationType: 'ADVERTISES_EVENT',
+    }]);
+    relationships.push({ type: 'ADVERTISES_EVENT', from: posterEntity.name, to: eventId });
+
+    // Create HELD_AT relationship (Event → Venue)
+    if (venueId) {
+      await this.relationService.createRelations([{
+        from: eventId,
+        to: venueId,
+        relationType: 'HELD_AT',
+      }]);
+      relationships.push({ type: 'HELD_AT', from: eventId, to: venueId });
+    }
+
+    // Create HEADLINED relationship (Artist → Event)
+    if (headlinerArtistId) {
+      await this.relationService.createRelations([{
+        from: headlinerArtistId,
+        to: eventId,
+        relationType: 'HEADLINED',
+      }]);
+      relationships.push({ type: 'HEADLINED', from: headlinerArtistId, to: eventId });
+    }
+
+    // Create supporting act relationships
+    if (artistResult.supportingActs) {
+      for (const act of artistResult.supportingActs) {
+        const actId = await this.createArtistEntity(act, entities);
+
+        // PERFORMED_ON relationship (Artist → Poster)
+        await this.relationService.createRelations([{
+          from: actId,
+          to: posterEntity.name,
+          relationType: 'PERFORMED_ON',
+        }]);
+        relationships.push({ type: 'PERFORMED_ON', from: actId, to: posterEntity.name });
+
+        // PERFORMED_AT relationship (Artist → Event)
+        await this.relationService.createRelations([{
+          from: actId,
+          to: eventId,
+          relationType: 'PERFORMED_AT',
+        }]);
+        relationships.push({ type: 'PERFORMED_AT', from: actId, to: eventId });
+      }
+    }
+
+    // Create promoter organization if present
+    if (eventResult?.promoter) {
+      const promoterId = `org_${eventResult.promoter.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+      const existingPromoter = await this.entityService.getEntity(promoterId);
+      if (!existingPromoter.success) {
+        await this.entityService.createEntities([{
+          name: promoterId,
+          entityType: 'Organization',
+          observations: [
+            `Name: ${eventResult.promoter}`,
+            'Type: promoter',
+          ],
+        }]);
+        entities.push({ type: 'Organization', name: promoterId, isNew: true });
+      } else {
+        entities.push({ type: 'Organization', name: promoterId, isNew: false });
+      }
+
+      await this.relationService.createRelations([{
+        from: eventId,
+        to: promoterId,
+        relationType: 'PROMOTED_BY',
+      }]);
+      relationships.push({ type: 'PROMOTED_BY', from: eventId, to: promoterId });
+    }
+  }
+
+  /**
+   * Create Film-specific entities and relationships
+   */
+  private async createFilmEntities(
+    posterEntity: PosterEntity,
+    artistResult: ArtistPhaseResult,
+    entities: AssemblyPhaseResult['entitiesCreated'],
+    relationships: AssemblyPhaseResult['relationshipsCreated']
+  ): Promise<void> {
+    if (!this.entityService || !this.relationService) return;
+
+    // Create Director entity and DIRECTED_BY relationship
+    if (artistResult.director) {
+      const directorId = await this.createArtistEntity(artistResult.director, entities, 'director');
+
+      await this.relationService.createRelations([{
+        from: posterEntity.name,
+        to: directorId,
+        relationType: 'DIRECTED_BY',
+      }]);
+      relationships.push({ type: 'DIRECTED_BY', from: posterEntity.name, to: directorId });
+    }
+
+    // Create Cast entities and STARS relationships
+    if (artistResult.cast) {
+      let billingOrder = 1;
+      for (const actor of artistResult.cast) {
+        const actorId = await this.createArtistEntity(actor, entities, 'actor');
+
+        const now = Date.now();
+        await this.relationService.createRelations([{
+          from: posterEntity.name,
+          to: actorId,
+          relationType: 'STARS',
+          metadata: { billing_order: billingOrder++, createdAt: now, updatedAt: now },
+        }]);
+        relationships.push({ type: 'STARS', from: posterEntity.name, to: actorId });
+      }
+    }
+
+    // Also use headliner as primary star if no cast specified
+    if (!artistResult.cast && artistResult.headliner) {
+      const starId = await this.createArtistEntity(artistResult.headliner, entities);
+
+      const now = Date.now();
+      await this.relationService.createRelations([{
+        from: posterEntity.name,
+        to: starId,
+        relationType: 'STARS',
+        metadata: { billing_order: 1, createdAt: now, updatedAt: now },
+      }]);
+      relationships.push({ type: 'STARS', from: posterEntity.name, to: starId });
+    }
+  }
+
+  /**
+   * Create basic entities for promo, exhibition, unknown types
+   */
+  private async createBasicEntities(
+    posterEntity: PosterEntity,
+    artistResult: ArtistPhaseResult,
+    venueResult: VenuePhaseResult,
+    entities: AssemblyPhaseResult['entitiesCreated'],
+    relationships: AssemblyPhaseResult['relationshipsCreated']
+  ): Promise<void> {
+    if (!this.entityService || !this.relationService) return;
+
+    // Create headliner artist
+    if (artistResult.headliner) {
+      const headlinerArtistId = await this.createArtistEntity(artistResult.headliner, entities);
+
+      await this.relationService.createRelations([{
+        from: headlinerArtistId,
+        to: posterEntity.name,
+        relationType: 'HEADLINED_ON',
+      }]);
+      relationships.push({ type: 'HEADLINED_ON', from: headlinerArtistId, to: posterEntity.name });
+    }
+
+    // Create supporting artists
+    if (artistResult.supportingActs) {
+      for (const act of artistResult.supportingActs) {
+        const actId = await this.createArtistEntity(act, entities);
+
+        await this.relationService.createRelations([{
+          from: actId,
+          to: posterEntity.name,
+          relationType: 'PERFORMED_ON',
+        }]);
+        relationships.push({ type: 'PERFORMED_ON', from: actId, to: posterEntity.name });
+      }
+    }
+
+    // Create venue
+    if (venueResult.venue) {
+      const venueId = await this.createVenueEntity(venueResult.venue, entities);
+
+      await this.relationService.createRelations([{
+        from: posterEntity.name,
+        to: venueId,
+        relationType: 'ADVERTISES_VENUE',
+      }]);
+      relationships.push({ type: 'ADVERTISES_VENUE', from: posterEntity.name, to: venueId });
+    }
+  }
+
+  /**
+   * Create HAS_TYPE relationships for inferred types
+   */
+  private async createTypeRelationships(
+    posterEntity: PosterEntity,
+    entities: AssemblyPhaseResult['entitiesCreated'],
+    relationships: AssemblyPhaseResult['relationshipsCreated']
+  ): Promise<void> {
+    if (!this.entityService || !this.relationService || !posterEntity.inferred_types) return;
+
+    for (const typeInference of posterEntity.inferred_types) {
+      const typeId = `PosterType_${typeInference.type_key}`;
+
+      const existingType = await this.entityService.getEntity(typeId);
+      if (!existingType.success) {
+        await this.entityService.createEntities([{
+          name: typeId,
+          entityType: 'PosterType',
+          observations: [`Type: ${typeInference.type_key}`],
+        }]);
+        entities.push({ type: 'PosterType', name: typeId, isNew: true });
+      }
+
+      const now = Date.now();
+      await this.relationService.createRelations([{
+        from: posterEntity.name,
+        to: typeId,
+        relationType: 'HAS_TYPE',
+        confidence: typeInference.confidence,
+        metadata: {
+          createdAt: now,
+          updatedAt: now,
+          source: typeInference.source,
+          evidence: typeInference.evidence,
+          is_primary: typeInference.is_primary,
+        },
+      }]);
+
+      relationships.push({ type: 'HAS_TYPE', from: posterEntity.name, to: typeId });
+    }
+  }
+
+  /**
+   * Helper: Create an Artist entity
+   */
+  private async createArtistEntity(
+    artist: ArtistMatch,
+    entities: AssemblyPhaseResult['entitiesCreated'],
+    role?: string
+  ): Promise<string> {
+    if (!this.entityService) throw new Error('EntityService not available');
+
+    const artistName = artist.validatedName ?? artist.extractedName;
+    const artistId = `artist_${artistName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+    const existingArtist = await this.entityService.getEntity(artistId);
+    const isNew = !existingArtist.success;
+
+    if (isNew) {
+      const observations: string[] = [
+        `Name: ${artistName}`,
+        artist.externalId ? `MusicBrainz ID: ${artist.externalId}` : '',
+        role ? `Role: ${role}` : '',
+      ].filter(o => o);
+
+      await this.entityService.createEntities([{
+        name: artistId,
+        entityType: 'Artist',
+        observations,
+      }]);
+    }
+
+    entities.push({ type: 'Artist', name: artistId, isNew });
+    return artistId;
+  }
+
+  /**
+   * Helper: Create a Venue entity
+   */
+  private async createVenueEntity(
+    venue: VenueMatch,
+    entities: AssemblyPhaseResult['entitiesCreated']
+  ): Promise<string> {
+    if (!this.entityService) throw new Error('EntityService not available');
+
+    const venueName = venue.validatedName ?? venue.extractedName;
+    const venueId = venue.existingVenueId ||
+      `venue_${venueName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+    const existingVenue = await this.entityService.getEntity(venueId);
+    const isNew = !existingVenue.success;
+
+    if (isNew) {
+      await this.entityService.createEntities([{
+        name: venueId,
+        entityType: 'Venue',
+        observations: [
+          `Name: ${venueName}`,
+          venue.city ? `City: ${venue.city}` : '',
+          venue.state ? `State: ${venue.state}` : '',
+          venue.country ? `Country: ${venue.country}` : '',
+        ].filter(o => o),
+      }]);
+    }
+
+    entities.push({ type: 'Venue', name: venueId, isNew });
+    return venueId;
   }
 
   /**
