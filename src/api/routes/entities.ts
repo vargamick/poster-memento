@@ -149,6 +149,9 @@ export function createEntityRoutes(entityService: EntityService, storageProvider
         entities = entities.map(e => projectFields(e, parsedFields));
       }
 
+      // Extract total from pagination metadata returned by storage provider
+      const paginationTotal = (result.data as any)?.pagination?.total ?? result.data?.entities.length ?? 0;
+
       res.json({
         data: {
           entities,
@@ -157,7 +160,7 @@ export function createEntityRoutes(entityService: EntityService, storageProvider
         pagination: {
           limit: parsedLimit,
           offset: parsedOffset,
-          total: result.data?.entities.length || 0
+          total: paginationTotal
         },
         warnings: result.warnings,
         suggestions: result.suggestions
@@ -243,6 +246,9 @@ export function createEntityRoutes(entityService: EntityService, storageProvider
         entities = entities.map(e => projectFields(e, parsedFields));
       }
 
+      // Extract total from pagination metadata returned by storage provider
+      const paginationTotal = (result.data as any)?.pagination?.total ?? result.data?.entities.length ?? 0;
+
       res.json({
         data: {
           entities,
@@ -251,7 +257,7 @@ export function createEntityRoutes(entityService: EntityService, storageProvider
         pagination: {
           limit: parsedLimit,
           offset: parsedOffset,
-          total: result.data?.entities.length || 0
+          total: paginationTotal
         },
         warnings: result.warnings,
         suggestions: result.suggestions

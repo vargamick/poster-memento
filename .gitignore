@@ -26,6 +26,7 @@ discovered-files.json
 # Instance source images (too large for git)
 instances/*/SourceImages/
 source-images
+SourceImages/
 
 # IDE
 .idea/

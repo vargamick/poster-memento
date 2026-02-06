@@ -62,9 +62,12 @@ export class PosterTypeQueryService {
     }
 
     try {
+      // Neo4j stores all relationships as :RELATES_TO with relationType as a property
+      // and metadata (source, is_primary) as a JSON string property
       const cypher = `
-        MATCH (p:Entity {entityType: 'Poster'})-[r:HAS_TYPE]->(t:Entity {entityType: 'PosterType'})
-        WHERE t.type_key = $typeKey OR t.name = $posterTypeName
+        MATCH (p:Entity {entityType: 'Poster'})-[r:RELATES_TO]->(t:Entity {entityType: 'PosterType'})
+        WHERE r.relationType = 'HAS_TYPE'
+          AND (t.type_key = $typeKey OR t.name = $posterTypeName)
         ${minConfidence > 0 ? 'AND r.confidence >= $minConfidence' : ''}
         RETURN p, r, t
         ORDER BY r.confidence DESC, p.name
@@ -101,15 +104,16 @@ export class PosterTypeQueryService {
     }
 
     try {
-      // Note: type_key extracted from entity name since it's not stored as a property
+      // Neo4j stores all relationships as :RELATES_TO with relationType as a property
+      // metadata contains source and is_primary as JSON - parsed in processMultiTypeResults
       const cypher = `
-        MATCH (p:Entity {entityType: 'Poster'})-[r:HAS_TYPE]->(t:Entity {entityType: 'PosterType'})
+        MATCH (p:Entity {entityType: 'Poster'})-[r:RELATES_TO]->(t:Entity {entityType: 'PosterType'})
+        WHERE r.relationType = 'HAS_TYPE'
         WITH p, collect({
           typeKey: CASE WHEN t.type_key IS NOT NULL THEN t.type_key ELSE replace(t.name, 'PosterType_', '') END,
           typeName: t.name,
           confidence: r.confidence,
-          source: r.source,
-          isPrimary: r.is_primary
+          metadata: r.metadata
         }) as types
         WHERE size(types) > 1
         RETURN p, types
@@ -136,9 +140,10 @@ export class PosterTypeQueryService {
     }
 
     try {
-      // Note: type_key extracted from entity name since it's not stored as a property
+      // Neo4j stores all relationships as :RELATES_TO with relationType as a property
       const cypher = `
-        MATCH (p:Entity {entityType: 'Poster'})-[r:HAS_TYPE]->(t:Entity {entityType: 'PosterType'})
+        MATCH (p:Entity {entityType: 'Poster'})-[r:RELATES_TO]->(t:Entity {entityType: 'PosterType'})
+        WHERE r.relationType = 'HAS_TYPE'
         RETURN CASE WHEN t.type_key IS NOT NULL THEN t.type_key ELSE replace(t.name, 'PosterType_', '') END as typeKey,
                count(p) as count, avg(r.confidence) as avgConfidence
         ORDER BY count DESC
@@ -171,21 +176,26 @@ export class PosterTypeQueryService {
     }
 
     try {
-      // Note: type_key extracted from entity name since it's not stored as a property
+      // Neo4j stores all relationships as :RELATES_TO with relationType as a property
+      // metadata contains source and is_primary as JSON
       const cypher = `
-        MATCH (p:Entity {name: $posterName})-[r:HAS_TYPE]->(t:Entity {entityType: 'PosterType'})
+        MATCH (p:Entity {name: $posterName})-[r:RELATES_TO]->(t:Entity {entityType: 'PosterType'})
+        WHERE r.relationType = 'HAS_TYPE'
         RETURN CASE WHEN t.type_key IS NOT NULL THEN t.type_key ELSE replace(t.name, 'PosterType_', '') END as typeKey,
-               r.confidence as confidence, r.source as source, r.is_primary as isPrimary
-        ORDER BY r.is_primary DESC, r.confidence DESC
+               r.confidence as confidence, r.metadata as metadata
+        ORDER BY r.confidence DESC
       `;
 
       const results = await (this.storageProvider as any).runCypher(cypher, { posterName });
-      return results.records?.map((record: any) => ({
-        typeKey: record.get('typeKey') || 'unknown',
-        confidence: record.get('confidence') || 0,
-        source: record.get('source') || 'unknown',
-        isPrimary: record.get('isPrimary') ?? false,
-      })) || [];
+      return results.records?.map((record: any) => {
+        const metadata = this.parseMetadata(record.get('metadata'));
+        return {
+          typeKey: record.get('typeKey') || 'unknown',
+          confidence: record.get('confidence') || 0,
+          source: metadata.source || 'unknown',
+          isPrimary: metadata.is_primary ?? false,
+        };
+      }) || [];
     } catch (error) {
       logger.error(`Error getting types for poster '${posterName}'`, error);
       throw error;
@@ -213,18 +223,18 @@ export class PosterTypeQueryService {
 
     try {
       // Batch query to get all type relationships for the given posters
-      // Note: type_key is extracted from entity name (PosterType_{key}) since it's not stored as a property
+      // Neo4j stores all relationships as :RELATES_TO with relationType as a property
+      // metadata contains source and is_primary as JSON
       const cypher = `
-        MATCH (p:Entity)-[r:HAS_TYPE]->(t:Entity {entityType: 'PosterType'})
-        WHERE p.name IN $posterNames
+        MATCH (p:Entity)-[r:RELATES_TO]->(t:Entity {entityType: 'PosterType'})
+        WHERE r.relationType = 'HAS_TYPE' AND p.name IN $posterNames
         RETURN p.name as posterName,
                CASE WHEN t.type_key IS NOT NULL THEN t.type_key
                     ELSE replace(t.name, 'PosterType_', '') END as typeKey,
                t.name as typeName,
                r.confidence as confidence,
-               r.source as source,
-               r.is_primary as isPrimary
-        ORDER BY p.name, r.is_primary DESC, r.confidence DESC
+               r.metadata as metadata
+        ORDER BY p.name, r.confidence DESC
       `;
 
       const results = await (this.storageProvider as any).runCypher(cypher, { posterNames });
@@ -238,12 +248,13 @@ export class PosterTypeQueryService {
           if (!typeMap.has(posterName)) {
             typeMap.set(posterName, []);
           }
+          const metadata = this.parseMetadata(record.get('metadata'));
           typeMap.get(posterName)!.push({
             typeKey: record.get('typeKey') || 'unknown',
             typeName: record.get('typeName') || '',
             confidence: record.get('confidence') ?? 0,
-            source: record.get('source') || 'unknown',
-            isPrimary: record.get('isPrimary') ?? false,
+            source: metadata.source || 'unknown',
+            isPrimary: metadata.is_primary ?? false,
           });
         }
       }
@@ -290,12 +301,14 @@ export class PosterTypeQueryService {
       // Extract type_key from entity name if not stored as property
       const typeName = t.properties?.name || '';
       const typeKey = t.properties?.type_key || typeName.replace('PosterType_', '') || 'unknown';
+      // Parse metadata JSON to get source and is_primary
+      const metadata = this.parseMetadata(r.properties?.metadata);
       poster.typeRelationships!.push({
         typeKey,
         typeName,
         confidence: r.properties?.confidence || 0,
-        source: r.properties?.source || 'unknown',
-        isPrimary: r.properties?.is_primary ?? false,
+        source: metadata.source || 'unknown',
+        isPrimary: metadata.is_primary ?? false,
       });
     }
 
@@ -310,14 +323,41 @@ export class PosterTypeQueryService {
 
     return results.records.map((record: any) => {
       const p = record.get('p');
-      const types = record.get('types');
+      const types = record.get('types') || [];
+
+      // Parse metadata for each type to extract source and is_primary
+      const parsedTypes = types.map((t: any) => {
+        const metadata = this.parseMetadata(t.metadata);
+        return {
+          typeKey: t.typeKey || 'unknown',
+          typeName: t.typeName || '',
+          confidence: t.confidence || 0,
+          source: metadata.source || 'unknown',
+          isPrimary: metadata.is_primary ?? false,
+        };
+      });
 
       return {
         name: p.properties?.name || '',
         entityType: 'Poster',
         observations: p.properties?.observations || [],
-        typeRelationships: types || [],
+        typeRelationships: parsedTypes,
       };
     });
+  }
+
+  /**
+   * Parse metadata JSON string from Neo4j relationship
+   */
+  private parseMetadata(metadata: string | null | undefined): Record<string, any> {
+    if (!metadata) return {};
+    try {
+      if (typeof metadata === 'string') {
+        return JSON.parse(metadata);
+      }
+      return metadata as Record<string, any>;
+    } catch {
+      return {};
+    }
   }
 }

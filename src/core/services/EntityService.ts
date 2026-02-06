@@ -304,14 +304,16 @@ export class EntityService {
         includeValidation = false
       } = options;
 
-      // Build search options - request enough results for pagination
+      // Build search options - use storage provider's native pagination
       const searchOptions = {
-        limit: limit + offset, // Request extra to handle offset
+        limit,
+        offset,
         entityTypes,
-        caseSensitive: false
+        caseSensitive: false,
+        includeTotalCount: true  // Request total count for pagination UI
       };
 
-      // Perform search
+      // Perform search with proper pagination
       const results = await this.storageProvider.searchNodes(query, searchOptions);
 
       // Filter by expertise area if specified
@@ -323,12 +325,6 @@ export class EntityService {
             return area.entityTypes.includes('*') || area.entityTypes.includes(entity.entityType);
           });
         }
-      }
-
-      // Apply pagination - skip 'offset' items and take 'limit' items
-      if (offset > 0 || results.entities.length > limit) {
-        results.entities = results.entities.slice(offset, offset + limit);
-        results.relations = results.relations.slice(offset, offset + limit);
       }
 
       // Add validation information if requested

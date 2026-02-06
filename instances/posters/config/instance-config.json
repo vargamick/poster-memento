@@ -14,7 +14,7 @@
         "title", "visual_elements", "event_date", "event_year",
         "ticket_price", "tour_name", "promo_details", "metadata"
       ],
-      "poster_type_enum": ["concert", "festival", "comedy", "theater", "film", "release", "promo", "exhibition", "hybrid", "unknown"],
+      "poster_type_enum": ["concert", "festival", "comedy", "theater", "film", "album", "promo", "exhibition", "hybrid", "unknown"],
       "visual_elements_schema": {
         "has_artist_photo": "boolean",
         "has_album_artwork": "boolean",
@@ -72,7 +72,7 @@
       "description": "Classification category for poster content (concert, release, festival, etc.)",
       "required_fields": ["name", "entityType", "type_key"],
       "optional_fields": ["display_name", "description", "detection_hints"],
-      "type_key_enum": ["concert", "festival", "comedy", "theater", "film", "release", "promo", "exhibition", "unknown"]
+      "type_key_enum": ["concert", "festival", "comedy", "theater", "film", "album", "promo", "exhibition", "unknown"]
     }
   ],
 
@@ -207,7 +207,42 @@
     "retryDelay": 2000,
     "memoryManagement": true,
     "enableLogging": true,
-    "logLevel": "info"
+    "logLevel": "info",
+
+    "iterative": {
+      "enabled": true,
+      "mode": "iterative",
+      "phases": {
+        "type": {
+          "enabled": true,
+          "confidenceThreshold": 0.7,
+          "retryOnLowConfidence": true,
+          "maxRetries": 2
+        },
+        "artist": {
+          "enabled": true,
+          "confidenceThreshold": 0.6,
+          "retryOnLowConfidence": true,
+          "maxRetries": 2,
+          "validationSources": ["musicbrainz", "discogs", "internal"]
+        },
+        "venue": {
+          "enabled": true,
+          "confidenceThreshold": 0.6,
+          "retryOnLowConfidence": false,
+          "maxRetries": 1,
+          "validationSources": ["internal"]
+        },
+        "event": {
+          "enabled": true,
+          "confidenceThreshold": 0.5,
+          "retryOnLowConfidence": false,
+          "maxRetries": 1
+        }
+      },
+      "onLowConfidence": "flag",
+      "pauseOnLowConfidence": false
+    }
   },
 
   "searchConfig": {

@@ -378,6 +378,265 @@ export class PosterAPI {
       body: JSON.stringify({ fixes })
     });
   }
+
+  // ============================================
+  // Session API Methods (Upload Staging)
+  // ============================================
+
+  /**
+   * List all upload sessions
+   * @returns {Promise<object>} Sessions list
+   */
+  async listSessions() {
+    return this.request('/api/v1/sessions');
+  }
+
+  /**
+   * Create a new upload session
+   * @param {string} name - User-friendly session name
+   * @returns {Promise<object>} Created session info
+   */
+  async createSession(name) {
+    return this.request('/api/v1/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ name })
+    });
+  }
+
+  /**
+   * Get session details by ID
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<object>} Session info with stats
+   */
+  async getSession(sessionId) {
+    return this.request(`/api/v1/sessions/${encodeURIComponent(sessionId)}`);
+  }
+
+  /**
+   * Delete a session (must be empty)
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<object>} Deletion result
+   */
+  async deleteSession(sessionId) {
+    return this.request(`/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE'
+    });
+  }
+
+  /**
+   * List images in a session
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<object>} Session images with presigned URLs
+   */
+  async listSessionImages(sessionId) {
+    return this.request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/images`);
+  }
+
+  /**
+   * Upload a single image to a session
+   * @param {string} sessionId - Session ID
+   * @param {File} file - Image file
+   * @param {function} onProgress - Progress callback (optional)
+   * @returns {Promise<object>} Upload result
+   */
+  async uploadToSession(sessionId, file, onProgress) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const url = `${this.baseUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}/images`;
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+
+      if (onProgress) {
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            onProgress(e.loaded / e.total);
+          }
+        });
+      }
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(JSON.parse(xhr.responseText));
+        } else {
+          reject(new APIError(
+            `Upload failed: ${xhr.statusText}`,
+            xhr.status,
+            JSON.parse(xhr.responseText || '{}')
+          ));
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        reject(new APIError('Network error during upload', 0, {}));
+      });
+
+      xhr.open('POST', url);
+      xhr.setRequestHeader('X-API-Key', this.apiKey);
+      xhr.send(formData);
+    });
+  }
+
+  /**
+   * Upload multiple images to a session
+   * @param {string} sessionId - Session ID
+   * @param {File[]} files - Array of image files
+   * @param {function} onProgress - Progress callback (fileIndex, fileProgress, overall)
+   * @returns {Promise<object>} Batch upload result
+   */
+  async uploadBatchToSession(sessionId, files, onProgress) {
+    const results = [];
+    let completed = 0;
+
+    for (const file of files) {
+      try {
+        const result = await this.uploadToSession(sessionId, file, (progress) => {
+          if (onProgress) {
+            onProgress(completed, progress, (completed + progress) / files.length);
+          }
+        });
+        results.push({ success: true, file: file.name, ...result });
+      } catch (error) {
+        results.push({ success: false, file: file.name, error: error.message });
+      }
+      completed++;
+      if (onProgress) {
+        onProgress(completed, 0, completed / files.length);
+      }
+    }
+
+    return {
+      success: true,
+      uploaded: results.filter(r => r.success).length,
+      failed: results.filter(r => !r.success).length,
+      results
+    };
+  }
+
+  /**
+   * Delete an image from a session
+   * @param {string} sessionId - Session ID
+   * @param {string} hash - Image hash
+   * @returns {Promise<object>} Deletion result
+   */
+  async deleteSessionImage(sessionId, hash) {
+    return this.request(
+      `/api/v1/sessions/${encodeURIComponent(sessionId)}/images/${encodeURIComponent(hash)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  /**
+   * Process selected images from a session
+   * @param {string} sessionId - Session ID
+   * @param {object} options - Processing options
+   * @param {string[]} options.hashes - Image hashes to process (omit for all)
+   * @param {string} options.modelKey - Vision model to use
+   * @param {number} options.batchSize - Batch size (default: 5)
+   * @returns {Promise<object>} Processing results
+   */
+  async processSession(sessionId, options = {}) {
+    return this.request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/process`, {
+      method: 'POST',
+      body: JSON.stringify(options)
+    });
+  }
+
+  // ============================================
+  // Live Folder API Methods (Canonical Storage)
+  // ============================================
+
+  /**
+   * List all images in the live folder
+   * @param {object} options - Pagination options
+   * @param {number} options.limit - Number of results
+   * @param {number} options.offset - Pagination offset
+   * @returns {Promise<object>} Live images list
+   */
+  async listLiveImages(options = {}) {
+    const params = new URLSearchParams();
+    if (options.limit) params.set('limit', options.limit.toString());
+    if (options.offset) params.set('offset', options.offset.toString());
+
+    const queryString = params.toString();
+    return this.request(`/api/v1/live/images${queryString ? '?' + queryString : ''}`);
+  }
+
+  /**
+   * Get presigned URL for a live image
+   * @param {string} hash - Image hash
+   * @param {number} expiry - URL expiry in seconds (default: 3600)
+   * @returns {Promise<object>} Image URL and metadata
+   */
+  async getLiveImageUrl(hash, expiry = 3600) {
+    const params = new URLSearchParams({ expiry: expiry.toString() });
+    return this.request(`/api/v1/live/images/${encodeURIComponent(hash)}?${params}`);
+  }
+
+  /**
+   * Delete a live image (also deletes the entity)
+   * @param {string} hash - Image hash
+   * @returns {Promise<object>} Deletion result
+   */
+  async deleteLiveImage(hash) {
+    return this.request(`/api/v1/live/images/${encodeURIComponent(hash)}`, {
+      method: 'DELETE'
+    });
+  }
+
+  /**
+   * Get live folder statistics
+   * @returns {Promise<object>} Stats including total images and entity count
+   */
+  async getLiveStats() {
+    return this.request('/api/v1/live/stats');
+  }
+
+  /**
+   * Get processing metadata for a live image
+   * @param {string} hash - Image hash
+   * @returns {Promise<object>} Processing metadata
+   */
+  async getLiveImageMetadata(hash) {
+    return this.request(`/api/v1/live/images/${encodeURIComponent(hash)}/metadata`);
+  }
+
+  // ============================================================================
+  // Migration API Methods (for migrating old S3 structure to new session/live)
+  // ============================================================================
+
+  /**
+   * Get migration status
+   * @returns {Promise<object>} Status of old vs new structure
+   */
+  async getMigrationStatus() {
+    return this.request('/api/v1/migration/status');
+  }
+
+  /**
+   * Preview migration (dry run)
+   * @returns {Promise<object>} Preview of what migration would do
+   */
+  async previewMigration() {
+    return this.request('/api/v1/migration/preview', { method: 'POST' });
+  }
+
+  /**
+   * Execute migration
+   * @returns {Promise<object>} Migration results
+   */
+  async executeMigration() {
+    return this.request('/api/v1/migration/execute', { method: 'POST' });
+  }
+
+  /**
+   * Cleanup old structure after migration
+   * @returns {Promise<object>} Cleanup result
+   */
+  async cleanupMigration() {
+    return this.request('/api/v1/migration/cleanup', { method: 'POST' });
+  }
 }
 
 /**

@@ -6,6 +6,9 @@ import { VisionModelProvider, VisionModelConfig, VisionModelsConfigFile } from '
 import { OllamaVisionProvider } from './providers/OllamaVisionProvider.js';
 import { VLLMVisionProvider } from './providers/VLLMVisionProvider.js';
 import { TransformersVisionProvider } from './providers/TransformersVisionProvider.js';
+import { OpenAIVisionProvider } from './providers/OpenAIVisionProvider.js';
+import { AnthropicVisionProvider } from './providers/AnthropicVisionProvider.js';
+import { GoogleVisionProvider } from './providers/GoogleVisionProvider.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -21,15 +24,38 @@ export class VisionModelFactory {
    * Create a vision provider based on the provided config
    */
   static create(config: VisionModelConfig): VisionModelProvider {
-    switch (config.provider) {
+    // Override baseUrl with environment variable if available
+    const effectiveConfig = { ...config };
+    if (config.provider === 'ollama' && process.env.OLLAMA_URL) {
+      effectiveConfig.baseUrl = process.env.OLLAMA_URL;
+    }
+
+    // API key overrides from environment variables (cloud providers)
+    if (config.provider === 'openai') {
+      effectiveConfig.apiKey = process.env.OPENAI_API_KEY || config.apiKey;
+    }
+    if (config.provider === 'anthropic') {
+      effectiveConfig.apiKey = process.env.ANTHROPIC_API_KEY || config.apiKey;
+    }
+    if (config.provider === 'google') {
+      effectiveConfig.apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || config.apiKey;
+    }
+
+    switch (effectiveConfig.provider) {
       case 'ollama':
-        return new OllamaVisionProvider(config);
+        return new OllamaVisionProvider(effectiveConfig);
       case 'vllm':
-        return new VLLMVisionProvider(config);
+        return new VLLMVisionProvider(effectiveConfig);
       case 'transformers':
-        return new TransformersVisionProvider(config);
+        return new TransformersVisionProvider(effectiveConfig);
+      case 'openai':
+        return new OpenAIVisionProvider(effectiveConfig);
+      case 'anthropic':
+        return new AnthropicVisionProvider(effectiveConfig);
+      case 'google':
+        return new GoogleVisionProvider(effectiveConfig);
       default:
-        throw new Error(`Unknown provider: ${(config as any).provider}`);
+        throw new Error(`Unknown provider: ${(effectiveConfig as any).provider}`);
     }
   }
 

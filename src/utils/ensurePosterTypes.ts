@@ -53,10 +53,10 @@ const POSTER_TYPE_SEEDS = [
     detection_hints: ['film', 'movie', 'cinema', 'screening', 'premiere', 'directed by']
   },
   {
-    name: 'PosterType_release',
+    name: 'PosterType_album',
     entityType: 'PosterType',
-    type_key: 'release',
-    display_name: 'Release',
+    type_key: 'album',
+    display_name: 'Album',
     description: 'Album, single, EP, or music release promo',
     detection_hints: ['album', 'out now', 'new release', 'available', 'streaming', 'pre-order', 'tracklist']
   },

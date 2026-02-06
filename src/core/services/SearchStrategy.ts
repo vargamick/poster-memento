@@ -91,9 +91,14 @@ export class VectorSearchStrategy implements SearchStrategy {
       // Generate query embedding
       const queryEmbedding = await this.embeddingService.generateEmbedding(query);
 
+      // Request more results if we need to filter by entityTypes
+      const requestLimit = options.entityTypes?.length
+        ? (options.limit || 10) * 3  // Request extra to compensate for filtering
+        : options.limit || 10;
+
       // Search vector store
       const results = await this.vectorStore.search(queryEmbedding, {
-        limit: options.limit || 10,
+        limit: requestLimit,
         minSimilarity: options.threshold || 0.7
       });
 
@@ -102,9 +107,16 @@ export class VectorSearchStrategy implements SearchStrategy {
 
       for (const result of results) {
         // Get full entity from result metadata
+        const entityType = result.metadata?.entityType || 'unknown';
+
+        // Filter by entityTypes if specified
+        if (options.entityTypes?.length && !options.entityTypes.includes(entityType)) {
+          continue; // Skip entities that don't match the requested types
+        }
+
         const entity: Entity = {
           name: (result.id as string) || result.metadata?.name || 'unknown',
-          entityType: result.metadata?.entityType || 'unknown',
+          entityType,
           observations: result.metadata?.observations || []
         };
 
@@ -117,6 +129,11 @@ export class VectorSearchStrategy implements SearchStrategy {
             matchReason: 'semantic_similarity'
           }
         });
+
+        // Stop if we have enough results
+        if (scoredEntities.length >= (options.limit || 10)) {
+          break;
+        }
       }
 
       return scoredEntities;

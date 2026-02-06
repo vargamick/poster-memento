@@ -161,7 +161,7 @@
 
     "poster_type": {
       "type": "string",
-      "enum": ["event", "release", "promo", "exhibition", "hybrid", "unknown"],
+      "enum": ["event", "album", "promo", "exhibition", "hybrid", "unknown"],
       "description": "Primary classification of the poster"
     },
 
@@ -255,7 +255,7 @@
     },
     {
       "if": {
-        "properties": { "poster_type": { "const": "release" } }
+        "properties": { "poster_type": { "const": "album" } }
       },
       "then": {
         "required": ["release"]

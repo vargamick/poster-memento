@@ -72,9 +72,9 @@ export class ReleaseValidator extends BaseValidator {
       const filmResult = await this.validateFilm(entity.title!, entity.year);
       results.push(filmResult);
     }
-    // For release/promo posters, validate against music databases
+    // For album/promo posters, validate against music databases
     else if (
-      (posterType === 'release' || posterType === 'promo') &&
+      (posterType === 'album' || posterType === 'promo') &&
       !this.isEmpty(entity.title)
     ) {
       const releaseResult = await this.validateMusicRelease(
@@ -88,7 +88,7 @@ export class ReleaseValidator extends BaseValidator {
     // Validate record label for music-related posters
     if (
       !this.isEmpty(entity.record_label) &&
-      ['release', 'promo', 'concert', 'festival'].includes(posterType ?? '')
+      ['album', 'promo', 'concert', 'festival'].includes(posterType ?? '')
     ) {
       const labelResult = await this.validateRecordLabel(entity.record_label!);
       results.push(labelResult);

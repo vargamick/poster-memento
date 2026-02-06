@@ -229,17 +229,17 @@ export class PosterProcessor {
       // Hybrid typically means release + concert
       // Split into two types with slightly lower confidence
       inferredTypes.push({
-        type_key: 'release',
+        type_key: 'album',
         confidence: baseConfidence * 0.9,
         source: 'vision',
-        evidence: `Vision model ${visionModel} detected hybrid (release + concert)`,
+        evidence: `Vision model ${visionModel} detected hybrid (album + concert)`,
         is_primary: true
       });
       inferredTypes.push({
         type_key: 'concert',
         confidence: baseConfidence * 0.85,
         source: 'vision',
-        evidence: `Vision model ${visionModel} detected hybrid (release + concert)`,
+        evidence: `Vision model ${visionModel} detected hybrid (album + concert)`,
         is_primary: false
       });
     } else {

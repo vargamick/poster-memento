@@ -379,6 +379,95 @@ export class QAValidationService {
   }
 
   /**
+   * Parse observations array into structured fields on the entity.
+   * Observations are stored as strings like "Headliner: Artist Name"
+   * This extracts them into direct properties for validators to use.
+   */
+  private enrichEntityFromObservations(entity: PosterEntity): PosterEntity {
+    const enriched = { ...entity };
+    const observations = entity.observations || [];
+
+    for (const obs of observations) {
+      // Match patterns like "Field name: value"
+      const match = obs.match(/^([^:]+):\s*(.+)$/i);
+      if (!match) continue;
+
+      const rawKey = match[1].toLowerCase().trim();
+      const value = match[2].trim();
+
+      // Skip empty or placeholder values
+      if (!value || value.toLowerCase() === 'not specified' ||
+          value.toLowerCase() === 'not applicable' ||
+          value.toLowerCase() === 'none' ||
+          value.toLowerCase() === 'not visible' ||
+          value.toLowerCase() === 'not shown') {
+        continue;
+      }
+
+      // Map observation keys to entity properties
+      switch (rawKey) {
+        case 'poster type':
+          // Cast to expected type (validation happens elsewhere)
+          if (!enriched.poster_type) enriched.poster_type = value as PosterEntity['poster_type'];
+          break;
+        case 'title':
+          if (!enriched.title) enriched.title = value;
+          break;
+        case 'headliner':
+          if (!enriched.headliner) enriched.headliner = value;
+          break;
+        case 'supporting acts':
+          if (!enriched.supporting_acts || enriched.supporting_acts.length === 0) {
+            // Try to split by comma
+            enriched.supporting_acts = value.split(',').map(s => s.trim()).filter(s => s);
+          }
+          break;
+        case 'venue':
+          if (!enriched.venue_name) enriched.venue_name = value;
+          break;
+        case 'city':
+          if (!enriched.city) enriched.city = value;
+          break;
+        case 'state':
+          if (!enriched.state) enriched.state = value;
+          break;
+        case 'event date':
+          if (!enriched.event_date) enriched.event_date = value;
+          break;
+        case 'year': {
+          // Parse year as number
+          const yearNum = parseInt(value, 10);
+          if (!isNaN(yearNum) && !enriched.year) enriched.year = yearNum;
+          break;
+        }
+        case 'decade':
+          if (!enriched.decade) enriched.decade = value;
+          break;
+        case 'ticket price':
+          if (!enriched.ticket_price) enriched.ticket_price = value;
+          break;
+        case 'door time':
+          if (!enriched.door_time) enriched.door_time = value;
+          break;
+        case 'show time':
+          if (!enriched.show_time) enriched.show_time = value;
+          break;
+        case 'age restriction':
+          if (!enriched.age_restriction) enriched.age_restriction = value;
+          break;
+        case 'visual style':
+          if (!enriched.visual_elements) enriched.visual_elements = {} as PosterEntity['visual_elements'];
+          if (enriched.visual_elements && !enriched.visual_elements.style) {
+            enriched.visual_elements.style = value as NonNullable<PosterEntity['visual_elements']>['style'];
+          }
+          break;
+      }
+    }
+
+    return enriched;
+  }
+
+  /**
    * Validate a single entity using all applicable validators
    */
   private async validateEntity(
@@ -389,9 +478,12 @@ export class QAValidationService {
     const allResults: ValidatorResult[] = [];
     const suggestions: QASuggestion[] = [];
 
+    // Enrich entity with structured fields from observations
+    const enrichedEntity = this.enrichEntityFromObservations(entity);
+
     const context: ValidationContext = {
       config,
-      posterType: entity.poster_type,
+      posterType: enrichedEntity.poster_type,
     };
 
     // Determine which validators to run
@@ -403,10 +495,10 @@ export class QAValidationService {
       if (!validator) continue;
 
       // Check if validator supports this entity type
-      if (!validator.supportsEntityType(entity.entityType)) continue;
+      if (!validator.supportsEntityType(enrichedEntity.entityType)) continue;
 
       try {
-        const results = await validator.validate(entity, context);
+        const results = await validator.validate(enrichedEntity, context);
         allResults.push(...results);
 
         // Extract suggestions from mismatches and partial matches

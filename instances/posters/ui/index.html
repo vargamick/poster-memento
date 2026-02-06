@@ -27,6 +27,7 @@
     <nav class="tabs">
       <button class="tab-btn active" data-tab="browse">Browse Collection</button>
       <button class="tab-btn" data-tab="processing">Process Images</button>
+      <button class="tab-btn" data-tab="database">Database</button>
       <button class="tab-btn" data-tab="qa-validation">QA Validation</button>
     </nav>
 
@@ -107,99 +108,365 @@
 
       <!-- Processing Tab -->
       <div id="processing-tab" class="tab-content hidden">
-        <!-- Source Folder Section -->
-        <section class="processing-section source-section">
-          <h2><span class="icon">📁</span> Source Images</h2>
-          <div class="source-controls">
-            <input type="text" id="source-path" value="./SourceImages" placeholder="Path to source images" readonly>
-            <button type="button" id="browse-btn" class="secondary-btn">Browse...</button>
-            <button type="button" id="scan-btn" class="preview-btn">Scan Folder</button>
-            <button type="button" id="refresh-btn" class="secondary-btn">Refresh</button>
-          </div>
-          <div class="source-stats">
-            <span>Total: <strong id="total-images">0</strong> images</span>
-            <span>Unprocessed: <strong id="unprocessed-count">--</strong></span>
-          </div>
-        </section>
-
-        <!-- Configuration Section -->
-        <section class="processing-section config-section">
-          <h2><span class="icon">⚙️</span> Processing Configuration</h2>
-          <div class="config-grid">
-            <label>
-              Vision Model
-              <select id="model-select">
-                <option value="">Loading models...</option>
-              </select>
-            </label>
-            <label>
-              Batch Size
-              <select id="batch-size-select">
-                <option value="1">1 (Test single)</option>
-                <option value="5" selected>5</option>
-                <option value="10">10</option>
-                <option value="25">25</option>
-              </select>
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="skip-existing" checked>
-              Skip already processed
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="store-images" checked>
-              Store images in MinIO
-            </label>
-          </div>
-        </section>
-
-        <!-- File Browser Section -->
-        <section class="processing-section file-browser-section">
-          <h2><span class="icon">🖼️</span> Images to Process</h2>
-          <div class="file-controls">
-            <button type="button" id="select-all-btn">Select All</button>
-            <button type="button" id="deselect-all-btn">Deselect All</button>
-            <span class="selection-info">Selected: <strong id="selected-count">0</strong></span>
-          </div>
-          <div class="file-list" id="file-list">
-            <div class="file-list-empty">
-              <p>No images loaded</p>
-              <p>Click "Scan Folder" to discover images</p>
+        <!-- Workflow Info -->
+        <div class="workflow-info">
+          <div class="workflow-steps">
+            <div class="workflow-step" data-step="1">
+              <span class="step-number">1</span>
+              <span class="step-label">Select Session</span>
+            </div>
+            <div class="workflow-arrow">→</div>
+            <div class="workflow-step" data-step="2">
+              <span class="step-number">2</span>
+              <span class="step-label">Upload Images</span>
+            </div>
+            <div class="workflow-arrow">→</div>
+            <div class="workflow-step" data-step="3">
+              <span class="step-number">3</span>
+              <span class="step-label">Select & Process</span>
+            </div>
+            <div class="workflow-arrow">→</div>
+            <div class="workflow-step" data-step="4">
+              <span class="step-number">4</span>
+              <span class="step-label">Live Folder</span>
             </div>
           </div>
-          <div class="file-pagination">
-            <button type="button" id="files-prev-btn" disabled>Previous</button>
-            <span id="files-page-info">Page 0 of 0</span>
-            <button type="button" id="files-next-btn" disabled>Next</button>
-          </div>
-        </section>
+        </div>
 
-        <!-- Actions Section -->
-        <section class="processing-section actions-section">
-          <button type="button" id="preview-btn" class="preview-btn" disabled>Preview Selected</button>
-          <button type="button" id="process-btn" class="process-btn" disabled>Process Selected</button>
-          <button type="button" id="process-all-btn" class="secondary-btn" disabled>Process All Unprocessed</button>
-        </section>
+        <!-- ===== STEP 1: SESSION SELECTION ===== -->
+        <div class="phase-container" id="phase-session">
+          <h2 class="phase-header"><span class="phase-number">1</span> Select or Create Session</h2>
+
+          <section class="processing-section session-section">
+            <div class="session-controls">
+              <select id="session-select" class="session-select">
+                <option value="">Loading sessions...</option>
+              </select>
+              <button type="button" id="new-session-btn" class="secondary-btn">+ New Session</button>
+              <input type="text" id="new-session-name" class="session-name-input hidden" placeholder="Enter session name...">
+              <button type="button" id="create-session-btn" class="process-btn hidden">Create</button>
+              <button type="button" id="delete-session-btn" class="danger-btn" disabled>Delete Session</button>
+            </div>
+            <div class="session-stats">
+              <span>Session images: <strong id="session-image-count">0</strong></span>
+            </div>
+          </section>
+        </div>
+
+        <!-- ===== STEP 2: UPLOAD TO SESSION ===== -->
+        <div class="phase-container hidden" id="upload-section">
+          <h2 class="phase-header"><span class="phase-number">2</span> Upload Images to Session</h2>
+
+          <section class="processing-section upload-browse-section">
+            <h3><span class="icon">📁</span> Browse Local Folder</h3>
+            <div class="upload-controls">
+              <button type="button" id="browse-btn" class="process-btn">Browse Local Folder</button>
+              <span class="folder-path">Selected: <strong id="local-folder-path">None</strong></span>
+              <span class="file-count">(<strong id="local-file-count">0</strong> images)</span>
+            </div>
+          </section>
+
+          <section class="processing-section file-browser-section">
+            <h3><span class="icon">🖼️</span> Local Files</h3>
+            <div class="file-controls">
+              <div class="selection-actions">
+                <button type="button" id="select-all-local-btn">Select All</button>
+                <button type="button" id="deselect-all-local-btn">Clear</button>
+              </div>
+              <span class="selection-info">Selected: <strong id="selected-local-count">0</strong></span>
+            </div>
+            <div class="file-list" id="local-file-list">
+              <div class="file-list-empty">
+                <p>No local folder selected</p>
+                <p>Click "Browse Local Folder" to select images</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="processing-section actions-section upload-actions">
+            <button type="button" id="upload-to-session-btn" class="process-btn" disabled>
+              <span class="btn-icon">⬆️</span> Upload Selected to Session
+            </button>
+            <div id="upload-progress" class="upload-progress hidden">
+              <div class="upload-progress-bar">
+                <div id="upload-progress-fill" class="upload-progress-fill"></div>
+              </div>
+              <span id="upload-progress-text" class="upload-progress-text">Uploading files...</span>
+            </div>
+          </section>
+        </div>
+
+        <!-- ===== STEP 3: SELECT IMAGES FOR PROCESSING ===== -->
+        <div class="phase-container hidden" id="session-images-section">
+          <h2 class="phase-header"><span class="phase-number">3</span> Select Images for Processing</h2>
+
+          <section class="processing-section session-images-browser">
+            <div class="session-images-header">
+              <h3><span class="icon">🖼️</span> Session Images</h3>
+              <button type="button" id="refresh-session-btn" class="secondary-btn">Refresh</button>
+            </div>
+            <div class="filter-controls">
+              <input type="text" id="image-filter" placeholder="Filter by filename..." class="filter-input">
+            </div>
+            <div class="file-controls">
+              <div class="selection-actions">
+                <button type="button" id="select-all-images-btn">Select All</button>
+                <button type="button" id="deselect-all-images-btn">Clear</button>
+              </div>
+              <span class="selection-info">Selected: <strong id="selected-image-count">0</strong> of <strong id="total-session-images">0</strong></span>
+            </div>
+            <div class="image-grid" id="session-image-list">
+              <div class="file-list-empty">
+                <p>No images in session</p>
+                <p>Upload images using the section above</p>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- ===== STEP 4: PROCESS ===== -->
+        <div class="phase-container hidden" id="process-section">
+          <h2 class="phase-header"><span class="phase-number">4</span> Process</h2>
+
+          <section class="processing-section config-section">
+            <h3><span class="icon">⚙️</span> Processing Options</h3>
+            <div class="config-grid">
+              <label>
+                Vision Model
+                <select id="model-select">
+                  <option value="">Loading models...</option>
+                </select>
+              </label>
+              <label>
+                Batch Size
+                <select id="batch-size-select">
+                  <option value="1">1 (Test)</option>
+                  <option value="5" selected>5</option>
+                  <option value="10">10</option>
+                  <option value="25">25</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section class="processing-section actions-section">
+            <button type="button" id="process-selected-btn" class="process-btn" disabled>
+              <span class="btn-icon">🔍</span> Process Selected
+            </button>
+            <button type="button" id="process-all-btn" class="secondary-btn" disabled>
+              Process All in Session
+            </button>
+            <p class="process-info">Successfully processed images will move to the Live folder</p>
+          </section>
+        </div>
 
         <!-- Progress Section (shown during processing) -->
         <section id="progress-section" class="processing-section progress-section hidden">
           <h2><span class="icon">⏳</span> Processing Progress</h2>
-          <div class="progress-bar">
-            <div class="progress-fill" id="progress-fill"></div>
+
+          <!-- Simple Pipeline: Download → Extract → Store → Complete -->
+          <div class="pipeline-stages">
+            <div class="pipeline-stage" data-stage="download" id="stage-download">
+              <div class="stage-indicator">
+                <div class="stage-icon">📥</div>
+                <div class="stage-status"></div>
+              </div>
+              <div class="stage-label">Download</div>
+            </div>
+            <div class="pipeline-connector"></div>
+            <div class="pipeline-stage" data-stage="extract" id="stage-extract">
+              <div class="stage-indicator">
+                <div class="stage-icon">🔍</div>
+                <div class="stage-status"></div>
+              </div>
+              <div class="stage-label">Extract</div>
+            </div>
+            <div class="pipeline-connector"></div>
+            <div class="pipeline-stage" data-stage="store" id="stage-store">
+              <div class="stage-indicator">
+                <div class="stage-icon">📊</div>
+                <div class="stage-status"></div>
+              </div>
+              <div class="stage-label">Store</div>
+            </div>
+            <div class="pipeline-connector"></div>
+            <div class="pipeline-stage" data-stage="complete" id="stage-complete">
+              <div class="stage-indicator">
+                <div class="stage-icon">✅</div>
+                <div class="stage-status"></div>
+              </div>
+              <div class="stage-label">Live</div>
+            </div>
           </div>
-          <div class="progress-stats">
-            <span>Progress: <strong id="progress-percent">0%</strong></span>
-            <span>Processed: <strong id="progress-processed">0</strong></span>
-            <span class="succeeded">Succeeded: <strong id="progress-succeeded">0</strong></span>
-            <span class="failed">Failed: <strong id="progress-failed">0</strong></span>
+
+          <!-- Progress Details -->
+          <div class="stage-details">
+            <div class="stage-details-header">
+              <span class="stage-details-title" id="stage-details-title">Initializing...</span>
+              <span class="stage-details-progress" id="stage-details-progress"></span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div class="progress-stats">
+              <span>Progress: <strong id="progress-percent">0%</strong></span>
+              <span>Processed: <strong id="progress-processed">0</strong></span>
+              <span class="succeeded">Moved to Live: <strong id="progress-succeeded">0</strong></span>
+              <span class="failed">Failed: <strong id="progress-failed">0</strong></span>
+            </div>
           </div>
-          <div class="progress-log" id="progress-log">
-            <!-- Processing log entries will appear here -->
+
+          <!-- Activity Log -->
+          <div class="activity-log-container">
+            <div class="activity-log-header">
+              <span>Activity Log</span>
+              <button type="button" id="toggle-log-btn" class="toggle-btn">Hide</button>
+            </div>
+            <div class="progress-log" id="progress-log"></div>
           </div>
+
           <div class="progress-actions">
-            <button type="button" id="cancel-processing-btn" class="secondary-btn">Cancel</button>
+            <button type="button" id="cancel-processing-btn" class="secondary-btn">Cancel Processing</button>
           </div>
         </section>
       </div><!-- End Processing Tab -->
+
+      <!-- Database Tab -->
+      <div id="database-tab" class="tab-content hidden">
+        <!-- Database Statistics -->
+        <section class="processing-section database-overview-section">
+          <h2><span class="icon">🗄️</span> Database Management</h2>
+          <p class="section-description">Manage knowledge graph storage, backups, and resets</p>
+
+          <div class="database-stats-grid">
+            <div class="db-stat-card">
+              <div class="db-stat-icon">📊</div>
+              <div class="db-stat-value" id="db-entities">-</div>
+              <div class="db-stat-label">Entities</div>
+            </div>
+            <div class="db-stat-card">
+              <div class="db-stat-icon">🔗</div>
+              <div class="db-stat-value" id="db-relationships">-</div>
+              <div class="db-stat-label">Relationships</div>
+            </div>
+            <div class="db-stat-card">
+              <div class="db-stat-icon">🧠</div>
+              <div class="db-stat-value" id="db-embeddings">-</div>
+              <div class="db-stat-label">Embeddings</div>
+            </div>
+            <div class="db-stat-card">
+              <div class="db-stat-icon">🖼️</div>
+              <div class="db-stat-value" id="db-live-images">-</div>
+              <div class="db-stat-label">Live Images</div>
+            </div>
+          </div>
+
+          <button type="button" id="refresh-db-stats-btn" class="secondary-btn">
+            <span class="btn-icon">↻</span> Refresh Stats
+          </button>
+        </section>
+
+        <!-- Backup Section -->
+        <section class="processing-section backup-section">
+          <h3><span class="icon">💾</span> Backup</h3>
+          <p class="section-description">Create a backup of Neo4j and PostgreSQL databases</p>
+          <div class="backup-controls">
+            <button type="button" id="create-backup-btn" class="process-btn">
+              <span class="btn-icon">💾</span> Create Backup
+            </button>
+            <div id="backup-status" class="backup-status hidden">
+              <span class="status-icon">✓</span>
+              <span class="status-text">Backup created</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Migration Section -->
+        <section class="processing-section migration-section">
+          <h3><span class="icon">📦</span> Migrate S3 Structure</h3>
+          <p class="section-description">Migrate images from old flat structure to new session/live folder structure</p>
+
+          <div class="migration-status">
+            <div class="migration-status-grid">
+              <div class="migration-stat">
+                <span class="migration-stat-label">Old Structure (originals/):</span>
+                <span class="migration-stat-value" id="migration-old-count">--</span>
+              </div>
+              <div class="migration-stat">
+                <span class="migration-stat-label">Live Folder:</span>
+                <span class="migration-stat-value" id="migration-live-count">--</span>
+              </div>
+              <div class="migration-stat">
+                <span class="migration-stat-label">Sessions:</span>
+                <span class="migration-stat-value" id="migration-session-count">--</span>
+              </div>
+            </div>
+            <button type="button" id="check-migration-btn" class="secondary-btn">
+              <span class="btn-icon">🔍</span> Check Status
+            </button>
+          </div>
+
+          <div class="migration-controls">
+            <button type="button" id="preview-migration-btn" class="secondary-btn" disabled>
+              <span class="btn-icon">👁️</span> Preview Migration
+            </button>
+            <button type="button" id="run-migration-btn" class="process-btn" disabled>
+              <span class="btn-icon">📦</span> Run Migration
+            </button>
+          </div>
+
+          <div id="migration-preview" class="migration-preview hidden">
+            <h4>Migration Preview</h4>
+            <div class="migration-preview-stats">
+              <span>Will move to Live: <strong id="preview-to-live">0</strong></span>
+              <span>Will move to Legacy Session: <strong id="preview-to-legacy">0</strong></span>
+              <span>Already in Live: <strong id="preview-already-live">0</strong></span>
+            </div>
+          </div>
+
+          <div id="migration-result" class="migration-result hidden">
+            <h4>Migration Complete</h4>
+            <div class="migration-result-stats">
+              <span class="succeeded">Moved to Live: <strong id="result-to-live">0</strong></span>
+              <span>Moved to Legacy: <strong id="result-to-legacy">0</strong></span>
+              <span class="failed">Errors: <strong id="result-errors">0</strong></span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Reset & Process Section -->
+        <section class="processing-section reset-section">
+          <h3><span class="icon">⚠️</span> Reset & Reprocess</h3>
+          <p class="section-description">Backup all data, clear the database, then reprocess all images from S3</p>
+
+          <div class="reset-warning">
+            <div class="warning-icon">⚠️</div>
+            <div class="warning-content">
+              <strong>Warning:</strong> This operation will:
+              <ol>
+                <li>Create a backup of all existing data</li>
+                <li>Delete all entities, relationships, and embeddings</li>
+                <li>Process all images from S3 bucket</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="reset-controls">
+            <button type="button" id="reset-and-process-btn" class="danger-btn" disabled>
+              <span class="btn-icon">🔄</span> Reset & Process All
+            </button>
+            <span class="reset-hint">Requires images in S3 bucket</span>
+          </div>
+        </section>
+
+        <!-- Database Log -->
+        <section class="processing-section db-log-section">
+          <h3><span class="icon">📋</span> Activity Log</h3>
+          <div class="db-log" id="db-activity-log">
+            <div class="db-log-empty">No recent activity</div>
+          </div>
+        </section>
+      </div><!-- End Database Tab -->
 
       <!-- QA Validation Tab -->
       <div id="qa-validation-tab" class="tab-content hidden">
@@ -402,46 +669,6 @@
         </div>
       </div>
 
-      <!-- Folder Browser Modal -->
-      <div id="folder-browser-modal" class="modal hidden">
-        <div class="modal-content folder-browser-modal-content">
-          <button type="button" class="modal-close" id="folder-browser-close">&times;</button>
-          <div class="folder-browser">
-            <div class="folder-browser-header">
-              <h3>Select Source Folder</h3>
-              <div class="folder-browser-path">
-                <span class="path-label">Current:</span>
-                <span id="folder-browser-current-path" class="current-path">/</span>
-              </div>
-            </div>
-            <div class="folder-browser-navigation">
-              <button type="button" id="folder-browser-up-btn" class="secondary-btn" disabled>
-                <span class="icon">⬆️</span> Parent Folder
-              </button>
-              <button type="button" id="folder-browser-home-btn" class="secondary-btn">
-                <span class="icon">🏠</span> Home
-              </button>
-            </div>
-            <div id="folder-browser-loading" class="folder-browser-loading hidden">
-              <div class="spinner"></div>
-              <p>Loading directories...</p>
-            </div>
-            <div id="folder-browser-error" class="folder-browser-error hidden">
-              <p id="folder-browser-error-message">Error loading directories</p>
-            </div>
-            <div id="folder-browser-list" class="folder-browser-list">
-              <!-- Directory items will be rendered here -->
-            </div>
-            <div class="folder-browser-info">
-              <span id="folder-browser-image-count">0 images in this folder</span>
-            </div>
-            <div class="folder-browser-actions">
-              <button type="button" id="folder-browser-select-btn" class="process-btn">Select This Folder</button>
-              <button type="button" id="folder-browser-cancel-btn" class="secondary-btn">Cancel</button>
-            </div>
-          </div>
-        </div>
-      </div>
     </main>
 
     <footer>

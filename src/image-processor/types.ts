@@ -5,7 +5,7 @@
 export interface VisionExtractionResult {
   extracted_text: string;
   structured_data?: {
-    poster_type?: 'concert' | 'festival' | 'comedy' | 'theater' | 'film' | 'release' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
+    poster_type?: 'concert' | 'festival' | 'comedy' | 'theater' | 'film' | 'album' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
     title?: string;
     artists?: string[];
     headliner?: string;
@@ -34,6 +34,12 @@ export interface VisionExtractionResult {
   provider: string;
   processing_time_ms: number;
   confidence?: number;
+  /** Token usage for cost tracking (cloud providers) */
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+  };
 }
 
 export interface VisionModelProvider {
@@ -45,14 +51,17 @@ export interface VisionModelProvider {
 }
 
 export interface VisionModelConfig {
-  provider: 'ollama' | 'vllm' | 'transformers';
-  baseUrl: string;
+  provider: 'ollama' | 'vllm' | 'transformers' | 'openai' | 'anthropic' | 'google';
+  baseUrl?: string;  // Optional for cloud providers (they have defaults)
   model: string;
   description?: string;
   parameters?: string;
+  apiKey?: string;   // API key for cloud providers (env var takes precedence)
   options?: {
     temperature?: number;
     maxTokens?: number;
+    timeout?: number;       // Request timeout in ms
+    maxRetries?: number;    // Number of retry attempts
   };
 }
 
@@ -86,7 +95,7 @@ export interface PosterEntity {
   name: string;
   entityType: 'Poster';
   /** @deprecated Use inferred_types and HAS_TYPE relationships instead */
-  poster_type?: 'concert' | 'festival' | 'comedy' | 'theater' | 'film' | 'release' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
+  poster_type?: 'concert' | 'festival' | 'comedy' | 'theater' | 'film' | 'album' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
   /** New type inference system - creates HAS_TYPE relationships */
   inferred_types?: TypeInference[];
   title?: string;
@@ -118,6 +127,7 @@ export interface PosterEntity {
   observations: string[];
   metadata: {
     source_image_url: string;
+    source_image_key?: string;
     source_image_hash: string;
     original_filename: string;
     file_size_bytes: number;
@@ -127,4 +137,79 @@ export interface PosterEntity {
     extraction_confidence?: number;
     processing_date: string;
   };
+}
+
+// ============================================================================
+// Session & Live Storage Types
+// ============================================================================
+
+/**
+ * Information about an upload session (staging area)
+ */
+export interface SessionInfo {
+  sessionId: string;       // e.g., "2026-02-05_concert-posters"
+  name: string;            // User-friendly name
+  created: string;         // ISO timestamp
+  imageCount: number;
+  totalSizeBytes: number;
+}
+
+/**
+ * An image in a session (awaiting processing)
+ */
+export interface SessionImage {
+  hash: string;
+  filename: string;
+  key: string;             // Full S3 key
+  sizeBytes: number;
+  uploadedAt: string;
+  url: string;             // Presigned URL
+}
+
+/**
+ * An image in the live folder (processed, has corresponding KG entity)
+ */
+export interface LiveImage {
+  hash: string;
+  filename: string;
+  key: string;             // Full S3 key
+  entityName: string;      // Corresponding KG entity name
+  sizeBytes: number;
+  processedAt: string;
+  url: string;             // Presigned URL
+}
+
+/**
+ * Statistics for the live folder
+ */
+export interface LiveStats {
+  totalImages: number;
+  totalSizeBytes: number;
+  oldestImage?: string;
+  newestImage?: string;
+}
+
+/**
+ * Processing result stored in live/metadata/
+ */
+export interface ProcessingResultMetadata {
+  hash: string;
+  entityName: string;
+  title?: string;
+  extractedData: Record<string, unknown>;
+  modelKey: string;
+  processedAt: string;
+}
+
+/**
+ * Result of processing a single image from a session
+ */
+export interface SessionProcessingResult {
+  hash: string;
+  success: boolean;
+  entityName?: string;
+  title?: string;
+  error?: string;
+  movedToLive: boolean;
+  processingTimeMs?: number;
 }

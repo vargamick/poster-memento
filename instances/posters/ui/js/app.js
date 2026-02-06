@@ -14,6 +14,7 @@ class PosterApp {
     this.currentPage = 1;
     this.currentTab = 'browse';
     this.processingInitialized = false;
+    this.databaseInitialized = false;
     this.qaValidationInitialized = false;
     this.limit = 10;
     this.totalPosters = 0;
@@ -59,6 +60,7 @@ class PosterApp {
       tabButtons: document.querySelectorAll('.tab-btn'),
       browseTab: document.getElementById('browse-tab'),
       processingTab: document.getElementById('processing-tab'),
+      databaseTab: document.getElementById('database-tab'),
       qaValidationTab: document.getElementById('qa-validation-tab')
     };
 
@@ -146,6 +148,7 @@ class PosterApp {
     // Hide all tab content
     this.elements.browseTab?.classList.add('hidden');
     this.elements.processingTab?.classList.add('hidden');
+    this.elements.databaseTab?.classList.add('hidden');
     this.elements.qaValidationTab?.classList.add('hidden');
 
     // Show selected tab content
@@ -159,6 +162,17 @@ class PosterApp {
         await processingManager.init();
         this.processingInitialized = true;
       }
+    } else if (tab === 'database') {
+      this.elements.databaseTab?.classList.remove('hidden');
+
+      // Initialize database functionality on first visit
+      if (!this.databaseInitialized) {
+        await processingManager.init(); // Processing manager handles database operations
+        this.databaseInitialized = true;
+      }
+      // Always refresh stats when opening database tab
+      processingManager.loadDatabaseStats();
+      processingManager.checkMigrationStatus();
     } else if (tab === 'qa-validation') {
       this.elements.qaValidationTab?.classList.remove('hidden');
 

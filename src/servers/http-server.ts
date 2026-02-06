@@ -40,6 +40,9 @@ import {
 import { createPosterRoutes } from '../api/routes/posters.js';
 import { createQAValidationRoutes } from '../api/routes/qa-validation.js';
 import { QAValidationService } from '../qa-validation/QAValidationService.js';
+import { createIterativeProcessingRoutes } from '../api/routes/iterative-processing.js';
+import { createSessionRoutes } from '../api/routes/sessions.js';
+import { createLiveRoutes } from '../api/routes/live.js';
 
 // Authentication middleware
 const authenticateApiKey = (
@@ -413,7 +416,11 @@ app.get('/api', (req, res) => {
       analytics: '/api/v1/analytics',
       temporal: '/api/v1/temporal',
       expertise: '/api/v1/expertise-areas',
-      admin: '/api/v1/admin'
+      admin: '/api/v1/admin',
+      images: '/api/v1/images',
+      posters: '/api/v1/posters',
+      qaValidation: '/api/v1/qa-validation',
+      iterative: '/api/v1/iterative'
     },
     authentication: 'X-API-Key header required',
     adminUI: '/admin',
@@ -484,6 +491,26 @@ if (process.env.POSTER_PROCESSING_ENABLED !== 'false' && knowledgeGraphManager) 
   }
 }
 
+// Session routes (for upload sessions - staging areas for images)
+if (process.env.SESSION_ROUTES_ENABLED !== 'false' && knowledgeGraphManager) {
+  try {
+    apiV1.use('/sessions', createSessionRoutes(knowledgeGraphManager));
+    logger.info('Session routes enabled at /api/v1/sessions');
+  } catch (error: any) {
+    logger.warn('Session routes not initialized', { error: error.message });
+  }
+}
+
+// Live routes (for canonical image storage - one per KG entity)
+if (process.env.LIVE_ROUTES_ENABLED !== 'false' && knowledgeGraphManager) {
+  try {
+    apiV1.use('/live', createLiveRoutes(knowledgeGraphManager));
+    logger.info('Live routes enabled at /api/v1/live');
+  } catch (error: any) {
+    logger.warn('Live routes not initialized', { error: error.message });
+  }
+}
+
 // QA Validation routes (for validating processed poster data)
 if (process.env.QA_VALIDATION_ENABLED !== 'false') {
   try {
@@ -496,6 +523,21 @@ if (process.env.QA_VALIDATION_ENABLED !== 'false') {
     logger.info('QA Validation routes enabled at /api/v1/qa-validation');
   } catch (error: any) {
     logger.warn('QA Validation routes not initialized', { error: error.message });
+  }
+}
+
+// Iterative Processing routes (for multi-phase poster processing)
+if (process.env.ITERATIVE_PROCESSING_ENABLED !== 'false') {
+  try {
+    apiV1.use('/iterative', createIterativeProcessingRoutes(
+      entityService,
+      relationService,
+      () => searchService,
+      process.env.DISCOGS_TOKEN
+    ));
+    logger.info('Iterative Processing routes enabled at /api/v1/iterative');
+  } catch (error: any) {
+    logger.warn('Iterative Processing routes not initialized', { error: error.message });
   }
 }
 

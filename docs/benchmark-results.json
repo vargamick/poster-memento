@@ -1,0 +1,602 @@
+[
+  {
+    "image": "50centcurtis.JPG",
+    "ground_truth": {
+      "type": "release",
+      "title": "Curtis's New Album Out Now"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "release",
+        "title": "CURTIS'S NEW ALBUM OUT NOW",
+        "time_ms": 16710,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "curtis",
+        "time_ms": 36543,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "release",
+        "title": "N/A",
+        "time_ms": 24533,
+        "type_match": true,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "ANNEMURRAY11.JPG",
+    "ground_truth": {
+      "type": "concert",
+      "title": "An Intimate Evening with Anne Murray"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "concert",
+        "title": "\"An Intimate Evening with Anne Murray\"",
+        "time_ms": 29936,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "An Intimate Evening With Anne Murray",
+        "time_ms": 42414,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "release",
+        "title": "Anne Murray",
+        "time_ms": 32005,
+        "type_match": false,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "acmi.JPG",
+    "ground_truth": {
+      "type": "film",
+      "title": "real life on film"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "film",
+        "title": "real life on film",
+        "time_ms": 33291,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "real life on film",
+        "time_ms": 45483,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "film",
+        "title": "Real life on film",
+        "time_ms": 32768,
+        "type_match": true,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "adamhills.JPG",
+    "ground_truth": {
+      "type": "comedy",
+      "title": "Adam Hills Joymonger"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "comedy",
+        "title": "ADAM HILLS joymonger",
+        "time_ms": 25228,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "joymonger",
+        "time_ms": 46185,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "release",
+        "title": "[release title]",
+        "time_ms": 28159,
+        "type_match": false,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "afractionofthewhole.JPG",
+    "ground_truth": {
+      "type": "release",
+      "title": "A Fraction of the Whole"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "promo",
+        "title": "A FRACTION OF THE WHOLE",
+        "time_ms": 28410,
+        "type_match": false,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "A FRACTION OF THE WHOLE",
+        "time_ms": 41351,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "release",
+        "title": "A FRACTION OF THE WHOLE",
+        "time_ms": 25317,
+        "type_match": true,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "ahistoryofviolence.JPG",
+    "ground_truth": {
+      "type": "film",
+      "title": "A HISTORY OF VIOLENCE"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "unknown",
+        "title": "A HISTORY OF VIOLENCE",
+        "time_ms": 24479,
+        "type_match": false,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "A History of Violence",
+        "time_ms": 43663,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "film",
+        "title": "A History of Violence",
+        "time_ms": 28691,
+        "type_match": true,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "alanbennett.JPG",
+    "ground_truth": {
+      "type": "theater",
+      "title": "TALKING HEADS"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "theater",
+        "title": "Alan Bennett's Talking Heads",
+        "time_ms": 31593,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "N/A",
+        "time_ms": 158363,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "unknown",
+        "title": "N/A",
+        "time_ms": 23933,
+        "type_match": false,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "alanisgarage.JPG",
+    "ground_truth": {
+      "type": "concert",
+      "title": "alainis/morissette/garbage australian 1999 special guests stellar*"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "concert",
+        "title": "N/A",
+        "time_ms": 79098,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "2nd and final show",
+        "time_ms": 40874,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "release",
+        "title": "Alanis Morissette Garage Inc. 2nd & Final Show",
+        "time_ms": 32158,
+        "type_match": false,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "alberthammondjr.JPG",
+    "ground_truth": {
+      "type": "concert",
+      "title": "ALBERT HAMMOND, JR."
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "concert",
+        "title": "ALBERT HAMMOND, JR.",
+        "time_ms": 30086,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "None",
+        "time_ms": 43287,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "release",
+        "title": "Albert Hammond, Jr.",
+        "time_ms": 30623,
+        "type_match": false,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "alexharveyband.JPG",
+    "ground_truth": {
+      "type": "concert",
+      "title": "The Sensational Alex Harvey Band"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "concert",
+        "title": "The Sensational Alex Harvey Band",
+        "time_ms": 27466,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "** The Sensational",
+        "time_ms": 41175,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "release",
+        "title": "The Sensational Alex Harvey Band",
+        "time_ms": 30997,
+        "type_match": false,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "alittlebitofsoul.JPG",
+    "ground_truth": {
+      "type": "film",
+      "title": "A Little Bit of Soul"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "film",
+        "title": "A Little Bit of Soul",
+        "time_ms": 32720,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "A Little Bit of Soul",
+        "time_ms": 41906,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "film",
+        "title": "A Little Bit of Soul",
+        "time_ms": 34020,
+        "type_match": true,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "alkalinetrio.JPG",
+    "ground_truth": {
+      "type": "concert",
+      "title": "ALKALINE TRIO AUSTRALIAN TOUR 2008"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "unknown",
+        "title": "Alkaline Trio Australian Tour 2008",
+        "time_ms": 35397,
+        "type_match": false,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "** Alkaline Trio",
+        "time_ms": 38736,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "release",
+        "title": "N/A",
+        "time_ms": 26084,
+        "type_match": false,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "amandapalmer.JPG",
+    "ground_truth": {
+      "type": "concert",
+      "title": "Amanda Palmer & The Danger Ensemble"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "concert",
+        "title": "N/A",
+        "time_ms": 25089,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "** Who Killed",
+        "time_ms": 163559,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "release",
+        "title": "Amanda Palmer & The Danger Ensemble",
+        "time_ms": 32154,
+        "type_match": false,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "americangangster.JPG",
+    "ground_truth": {
+      "type": "film",
+      "title": "AMERICAN GANGSTER"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "film",
+        "title": "AMERICAN GANGSTER",
+        "time_ms": 28952,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "AMERICAN GANGSTERS",
+        "time_ms": 35768,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "unknown",
+        "title": "N/A",
+        "time_ms": 26034,
+        "type_match": false,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "annefrank.JPG",
+    "ground_truth": {
+      "type": "theater",
+      "title": "The Diary of Anne Frank"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "theater",
+        "title": "The Diary of Anne Frank",
+        "time_ms": 29972,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "** The Diary of Anne Frank",
+        "time_ms": 159435,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "unknown",
+        "title": "N/A",
+        "time_ms": 25509,
+        "type_match": false,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "10000bc.JPG",
+    "ground_truth": {
+      "type": "film",
+      "title": "10,000 BC"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "film",
+        "title": "N/A",
+        "time_ms": 23284,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "1000BC",
+        "time_ms": 37123,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "unknown",
+        "title": "N/A",
+        "time_ms": 24471,
+        "type_match": false,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "10000bc2.JPG",
+    "ground_truth": {
+      "type": "film",
+      "title": "1000 BC"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "film",
+        "title": "1000 BC",
+        "time_ms": 24346,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "1000 BC",
+        "time_ms": 158195,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "film",
+        "title": "10,000 B.C.",
+        "time_ms": 31211,
+        "type_match": true,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "2046.JPG",
+    "ground_truth": {
+      "type": "film",
+      "title": "2046"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "film",
+        "title": "\"2046\"",
+        "time_ms": 26704,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "2046",
+        "time_ms": 158222,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "unknown",
+        "title": "N/A",
+        "time_ms": 26320,
+        "type_match": false,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "39steps.JPG",
+    "ground_truth": {
+      "type": "comedy",
+      "title": "The 39 Steps"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "comedy",
+        "title": "THE 39 STEPS'",
+        "time_ms": 27216,
+        "type_match": true,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "N/A",
+        "time_ms": 158653,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "release",
+        "title": "The 39 Steps",
+        "time_ms": 26421,
+        "type_match": false,
+        "success": true
+      }
+    }
+  },
+  {
+    "image": "50cent2.JPG",
+    "ground_truth": {
+      "type": "film",
+      "title": "Curtis \"50 Cent\" Jackson Get Rich Die Tryin' Inside Every Man Is The Power To Choose"
+    },
+    "results": {
+      "minicpm-v-ollama": {
+        "type": "unknown",
+        "title": "CURTIS \"50 CENT\" JACKSON GET RICH DIE TRYIN'",
+        "time_ms": 34194,
+        "type_match": false,
+        "success": true
+      },
+      "llama-vision-ollama": {
+        "type": "unknown",
+        "title": "** Get Rich or Die Tryin'",
+        "time_ms": 159388,
+        "type_match": false,
+        "success": true
+      },
+      "llava-13b-ollama": {
+        "type": "release",
+        "title": "Get Rich or Die Tryin'",
+        "time_ms": 26703,
+        "type_match": false,
+        "success": true
+      }
+    }
+  }
+]

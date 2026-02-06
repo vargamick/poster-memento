@@ -33,9 +33,9 @@ STEP 1: Determine the POSTER TYPE - what is the primary purpose of this poster?
 - comedy: Advertises a comedy show or standup performance
 - theater: Advertises a theatrical production or play
 - film: Advertises a movie or film screening
-- release: Promotes an album, single, EP, or music release.
+- album: Promotes an album, single, EP, or music release.
   IMPORTANT: If you see an artist/band name AND an album/title name together
-  WITHOUT a venue or specific event date, this is likely a RELEASE poster.
+  WITHOUT a venue or specific event date, this is likely an ALBUM poster.
   Look for text like "OUT NOW", "NEW ALBUM", "AVAILABLE", or just artist + title format.
 - promo: General promotional/advertising poster (endorsements, competitions)
 - exhibition: Art exhibition, gallery show, or museum display
@@ -43,7 +43,7 @@ STEP 1: Determine the POSTER TYPE - what is the primary purpose of this poster?
 - unknown: Cannot determine the type - use this ONLY if truly ambiguous
 
 TYPE DETECTION EXAMPLES:
-- "1200 TECHNIQUES - CONSISTENCY THEORY" (no venue/date) = release (artist + album title)
+- "1200 TECHNIQUES - CONSISTENCY THEORY" (no venue/date) = album (artist + album title)
 - "METALLICA - ARENA TOUR 2024 - MADISON SQUARE GARDEN - MARCH 15" = concert (has venue + date)
 - "GLASTONBURY FESTIVAL - COLDPLAY, FOO FIGHTERS, ARCTIC MONKEYS..." = festival (multiple artists + festival name)
 - "THE GODFATHER - IN THEATERS NOW" = film
@@ -88,7 +88,7 @@ STEP 4: Describe VISUAL ELEMENTS:
 
 STEP 5: Return findings in this format:
 
-POSTER TYPE: [concert|festival|comedy|theater|film|release|promo|exhibition|hybrid|unknown]
+POSTER TYPE: [concert|festival|comedy|theater|film|album|promo|exhibition|hybrid|unknown]
 
 EXTRACTED TEXT:
 [All text from the poster]
@@ -160,10 +160,10 @@ Be accurate and only include information you can clearly see in the image.`;
   private parseStructuredResponse(text: string): VisionExtractionResult['structured_data'] {
     const result: VisionExtractionResult['structured_data'] = {};
 
-    // Parse poster type first
-    const posterTypeMatch = text.match(/POSTER TYPE:\s*(concert|festival|comedy|theater|film|release|promo|exhibition|hybrid|unknown)/i);
+    // Parse poster type first - handle both "POSTER TYPE: album" and "POSTER TYPE:\n- album" formats
+    const posterTypeMatch = text.match(/POSTER TYPE:\s*[-\n]*\s*(concert|festival|comedy|theater|film|album|promo|exhibition|hybrid|unknown)/i);
     if (posterTypeMatch) {
-      result.poster_type = posterTypeMatch[1].toLowerCase() as 'concert' | 'festival' | 'comedy' | 'theater' | 'film' | 'release' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
+      result.poster_type = posterTypeMatch[1].toLowerCase() as 'concert' | 'festival' | 'comedy' | 'theater' | 'film' | 'album' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
     }
 
     // Parse structured data section

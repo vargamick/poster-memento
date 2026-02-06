@@ -1,27 +1,37 @@
 /**
- * Processing Manager
- * Handles poster image scanning, previewing, and batch processing
+ * Processing Manager - Session-Based Workflow
+ *
+ * Flow:
+ * 1. Create or select a session (staging area)
+ * 2. Upload images to the session
+ * 3. View and select images in the session
+ * 4. Process selected images (moves to live folder on success)
  */
 
-import { createAPI } from './api.js';
-
-export class ProcessingManager {
+class ProcessingManager {
   constructor() {
-    this.api = createAPI();
-    this.files = [];
-    this.selectedFiles = new Set();
-    this.currentPage = 1;
-    this.totalFiles = 0;
-    this.limit = 50;
-    this.hasMore = false;
-    this.isProcessing = false;
-    this.currentPreviewEntity = null;
-    this.processingAborted = false;
+    // Session state
+    this.sessions = [];
+    this.currentSessionId = null;
+    this.currentSession = null;
 
-    // Folder browser state
-    this.folderBrowserCurrentPath = null;
-    this.folderBrowserParentPath = null;
-    this.folderBrowserDirectories = [];
+    // Session images state
+    this.sessionImages = [];
+    this.selectedImages = new Set();
+
+    // Local upload state
+    this.localFiles = [];
+    this.selectedLocalFiles = new Set();
+    this.localDirectoryHandle = null;
+
+    // Processing state
+    this.isProcessing = false;
+    this.processingAborted = false;
+    this.currentStage = null;
+    this.stages = ['download', 'extract', 'store', 'complete'];
+
+    // Filter state
+    this.filterText = '';
 
     this.elements = {};
     this.initialized = false;
@@ -35,10 +45,11 @@ export class ProcessingManager {
 
     this.cacheElements();
     this.bindEvents();
-    await this.loadVisionModels();
+    await this.loadModels();
+    await this.loadSessions();
 
     this.initialized = true;
-    console.log('ProcessingManager initialized');
+    console.log('ProcessingManager initialized with session-based workflow');
   }
 
   /**
@@ -46,70 +57,88 @@ export class ProcessingManager {
    */
   cacheElements() {
     this.elements = {
-      // Source section
-      sourcePath: document.getElementById('source-path'),
+      // Step 1: Session selection
+      sessionSelect: document.getElementById('session-select'),
+      newSessionBtn: document.getElementById('new-session-btn'),
+      newSessionName: document.getElementById('new-session-name'),
+      createSessionBtn: document.getElementById('create-session-btn'),
+      deleteSessionBtn: document.getElementById('delete-session-btn'),
+      sessionInfo: document.getElementById('session-info'),
+      sessionImageCount: document.getElementById('session-image-count'),
+
+      // Step 2: Upload to session
+      uploadSection: document.getElementById('upload-section'),
       browseBtn: document.getElementById('browse-btn'),
-      scanBtn: document.getElementById('scan-btn'),
-      refreshBtn: document.getElementById('refresh-btn'),
-      totalImages: document.getElementById('total-images'),
-      unprocessedCount: document.getElementById('unprocessed-count'),
+      localFolderPath: document.getElementById('local-folder-path'),
+      localFileCount: document.getElementById('local-file-count'),
+      localFileList: document.getElementById('local-file-list'),
+      selectAllLocalBtn: document.getElementById('select-all-local-btn'),
+      deselectAllLocalBtn: document.getElementById('deselect-all-local-btn'),
+      selectedLocalCount: document.getElementById('selected-local-count'),
+      uploadToSessionBtn: document.getElementById('upload-to-session-btn'),
+      uploadProgress: document.getElementById('upload-progress'),
+      uploadProgressFill: document.getElementById('upload-progress-fill'),
+      uploadProgressText: document.getElementById('upload-progress-text'),
 
-      // Folder browser modal
-      folderBrowserModal: document.getElementById('folder-browser-modal'),
-      folderBrowserClose: document.getElementById('folder-browser-close'),
-      folderBrowserCurrentPath: document.getElementById('folder-browser-current-path'),
-      folderBrowserUpBtn: document.getElementById('folder-browser-up-btn'),
-      folderBrowserHomeBtn: document.getElementById('folder-browser-home-btn'),
-      folderBrowserLoading: document.getElementById('folder-browser-loading'),
-      folderBrowserError: document.getElementById('folder-browser-error'),
-      folderBrowserErrorMessage: document.getElementById('folder-browser-error-message'),
-      folderBrowserList: document.getElementById('folder-browser-list'),
-      folderBrowserImageCount: document.getElementById('folder-browser-image-count'),
-      folderBrowserSelectBtn: document.getElementById('folder-browser-select-btn'),
-      folderBrowserCancelBtn: document.getElementById('folder-browser-cancel-btn'),
+      // Step 3: Select images for processing
+      sessionImagesSection: document.getElementById('session-images-section'),
+      refreshSessionBtn: document.getElementById('refresh-session-btn'),
+      imageFilter: document.getElementById('image-filter'),
+      sessionImageList: document.getElementById('session-image-list'),
+      selectAllImagesBtn: document.getElementById('select-all-images-btn'),
+      deselectAllImagesBtn: document.getElementById('deselect-all-images-btn'),
+      selectedImageCount: document.getElementById('selected-image-count'),
+      totalSessionImages: document.getElementById('total-session-images'),
 
-      // Config section
+      // Step 4: Process
+      processSection: document.getElementById('process-section'),
       modelSelect: document.getElementById('model-select'),
       batchSizeSelect: document.getElementById('batch-size-select'),
-      skipExisting: document.getElementById('skip-existing'),
-      storeImages: document.getElementById('store-images'),
-
-      // File browser
-      selectAllBtn: document.getElementById('select-all-btn'),
-      deselectAllBtn: document.getElementById('deselect-all-btn'),
-      selectedCount: document.getElementById('selected-count'),
-      fileList: document.getElementById('file-list'),
-      filesPrevBtn: document.getElementById('files-prev-btn'),
-      filesNextBtn: document.getElementById('files-next-btn'),
-      filesPageInfo: document.getElementById('files-page-info'),
-
-      // Actions
-      previewBtn: document.getElementById('preview-btn'),
-      processBtn: document.getElementById('process-btn'),
+      processSelectedBtn: document.getElementById('process-selected-btn'),
       processAllBtn: document.getElementById('process-all-btn'),
 
-      // Progress
+      // Progress section
       progressSection: document.getElementById('progress-section'),
+      stageDownload: document.getElementById('stage-download'),
+      stageExtract: document.getElementById('stage-extract'),
+      stageStore: document.getElementById('stage-store'),
+      stageComplete: document.getElementById('stage-complete'),
+      stageDetailsTitle: document.getElementById('stage-details-title'),
+      stageDetailsProgress: document.getElementById('stage-details-progress'),
       progressFill: document.getElementById('progress-fill'),
       progressPercent: document.getElementById('progress-percent'),
       progressProcessed: document.getElementById('progress-processed'),
       progressSucceeded: document.getElementById('progress-succeeded'),
       progressFailed: document.getElementById('progress-failed'),
       progressLog: document.getElementById('progress-log'),
+      toggleLogBtn: document.getElementById('toggle-log-btn'),
       cancelProcessingBtn: document.getElementById('cancel-processing-btn'),
 
-      // Preview modal
-      previewModal: document.getElementById('preview-modal'),
-      previewModalClose: document.getElementById('preview-modal-close'),
-      previewImage: document.getElementById('preview-image'),
-      previewLoading: document.getElementById('preview-loading'),
-      previewData: document.getElementById('preview-data'),
-      previewError: document.getElementById('preview-error'),
-      previewErrorMessage: document.getElementById('preview-error-message'),
-      previewTime: document.getElementById('preview-time'),
-      previewModel: document.getElementById('preview-model'),
-      previewCommitBtn: document.getElementById('preview-commit-btn'),
-      previewCloseBtn: document.getElementById('preview-close-btn')
+      // Database management (Database Tab)
+      dbEntities: document.getElementById('db-entities'),
+      dbRelationships: document.getElementById('db-relationships'),
+      dbEmbeddings: document.getElementById('db-embeddings'),
+      dbLiveImages: document.getElementById('db-live-images'),
+      refreshDbStatsBtn: document.getElementById('refresh-db-stats-btn'),
+      createBackupBtn: document.getElementById('create-backup-btn'),
+      backupStatus: document.getElementById('backup-status'),
+      dbActivityLog: document.getElementById('db-activity-log'),
+
+      // Migration (Database Tab)
+      migrationOldCount: document.getElementById('migration-old-count'),
+      migrationLiveCount: document.getElementById('migration-live-count'),
+      migrationSessionCount: document.getElementById('migration-session-count'),
+      checkMigrationBtn: document.getElementById('check-migration-btn'),
+      previewMigrationBtn: document.getElementById('preview-migration-btn'),
+      runMigrationBtn: document.getElementById('run-migration-btn'),
+      migrationPreview: document.getElementById('migration-preview'),
+      previewToLive: document.getElementById('preview-to-live'),
+      previewToLegacy: document.getElementById('preview-to-legacy'),
+      previewAlreadyLive: document.getElementById('preview-already-live'),
+      migrationResult: document.getElementById('migration-result'),
+      resultToLive: document.getElementById('result-to-live'),
+      resultToLegacy: document.getElementById('result-to-legacy'),
+      resultErrors: document.getElementById('result-errors')
     };
   }
 
@@ -117,571 +146,798 @@ export class ProcessingManager {
    * Bind event listeners
    */
   bindEvents() {
-    // Source controls
-    this.elements.browseBtn?.addEventListener('click', () => this.openFolderBrowser());
-    this.elements.scanBtn?.addEventListener('click', () => this.scanFolder());
-    this.elements.refreshBtn?.addEventListener('click', () => this.scanFolder());
+    // Step 1: Session management
+    this.elements.sessionSelect?.addEventListener('change', (e) => this.selectSession(e.target.value));
+    this.elements.newSessionBtn?.addEventListener('click', () => this.showNewSessionForm());
+    this.elements.createSessionBtn?.addEventListener('click', () => this.createSession());
+    this.elements.deleteSessionBtn?.addEventListener('click', () => this.deleteSession());
 
-    // Folder browser modal
-    this.elements.folderBrowserClose?.addEventListener('click', () => this.closeFolderBrowser());
-    this.elements.folderBrowserCancelBtn?.addEventListener('click', () => this.closeFolderBrowser());
-    this.elements.folderBrowserSelectBtn?.addEventListener('click', () => this.selectFolder());
-    this.elements.folderBrowserUpBtn?.addEventListener('click', () => this.navigateToParent());
-    this.elements.folderBrowserHomeBtn?.addEventListener('click', () => this.navigateToHome());
-    this.elements.folderBrowserModal?.addEventListener('click', (e) => {
-      if (e.target === this.elements.folderBrowserModal) this.closeFolderBrowser();
+    // Step 2: Upload
+    this.elements.browseBtn?.addEventListener('click', () => this.browseLocalFolder());
+    this.elements.selectAllLocalBtn?.addEventListener('click', () => this.selectAllLocal());
+    this.elements.deselectAllLocalBtn?.addEventListener('click', () => this.deselectAllLocal());
+    this.elements.localFileList?.addEventListener('click', (e) => this.handleLocalFileClick(e));
+    this.elements.uploadToSessionBtn?.addEventListener('click', () => this.uploadToSession());
+
+    // Step 3: Select images
+    this.elements.refreshSessionBtn?.addEventListener('click', () => this.loadSessionImages());
+    this.elements.imageFilter?.addEventListener('input', (e) => {
+      this.filterText = e.target.value.toLowerCase().trim();
+      this.renderSessionImages();
     });
-    this.elements.folderBrowserList?.addEventListener('click', (e) => this.handleFolderClick(e));
-    this.elements.folderBrowserList?.addEventListener('dblclick', (e) => this.handleFolderDoubleClick(e));
+    this.elements.selectAllImagesBtn?.addEventListener('click', () => this.selectAllImages());
+    this.elements.deselectAllImagesBtn?.addEventListener('click', () => this.deselectAllImages());
+    this.elements.sessionImageList?.addEventListener('click', (e) => this.handleImageClick(e));
 
-    // File selection
-    this.elements.selectAllBtn?.addEventListener('click', () => this.selectAll());
-    this.elements.deselectAllBtn?.addEventListener('click', () => this.deselectAll());
-
-    // Pagination
-    this.elements.filesPrevBtn?.addEventListener('click', () => this.prevPage());
-    this.elements.filesNextBtn?.addEventListener('click', () => this.nextPage());
-
-    // Actions
-    this.elements.previewBtn?.addEventListener('click', () => this.previewSelected());
-    this.elements.processBtn?.addEventListener('click', () => this.processSelected());
+    // Step 4: Process
+    this.elements.processSelectedBtn?.addEventListener('click', () => this.processSelected());
     this.elements.processAllBtn?.addEventListener('click', () => this.processAll());
+
+    // Progress controls
+    this.elements.toggleLogBtn?.addEventListener('click', () => this.toggleActivityLog());
     this.elements.cancelProcessingBtn?.addEventListener('click', () => this.cancelProcessing());
 
-    // Preview modal
-    this.elements.previewModalClose?.addEventListener('click', () => this.closePreviewModal());
-    this.elements.previewCloseBtn?.addEventListener('click', () => this.closePreviewModal());
-    this.elements.previewCommitBtn?.addEventListener('click', () => this.commitPreview());
-    this.elements.previewModal?.addEventListener('click', (e) => {
-      if (e.target === this.elements.previewModal) this.closePreviewModal();
-    });
+    // Database management
+    this.elements.refreshDbStatsBtn?.addEventListener('click', () => this.loadDatabaseStats());
+    this.elements.createBackupBtn?.addEventListener('click', () => this.createBackup());
 
-    // File list click delegation
-    this.elements.fileList?.addEventListener('click', (e) => this.handleFileListClick(e));
-    this.elements.fileList?.addEventListener('change', (e) => this.handleFileCheckboxChange(e));
+    // Migration
+    this.elements.checkMigrationBtn?.addEventListener('click', () => this.checkMigrationStatus());
+    this.elements.previewMigrationBtn?.addEventListener('click', () => this.previewMigration());
+    this.elements.runMigrationBtn?.addEventListener('click', () => this.runMigration());
 
-    // Keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !this.elements.previewModal?.classList.contains('hidden')) {
-        this.closePreviewModal();
-      }
-    });
+    // NOTE: Database stats and migration status are loaded when the Database tab is opened
+    // (handled by app.js switchTab function)
   }
 
   /**
    * Load available vision models
    */
-  async loadVisionModels() {
+  async loadModels() {
     try {
-      const result = await this.api.getVisionModels();
-      const models = result.data?.models || [];
-      const defaultModel = result.data?.current || result.data?.default;
-
-      this.elements.modelSelect.innerHTML = models.map(model => `
-        <option value="${this.escapeHtml(model.key)}" ${model.key === defaultModel ? 'selected' : ''}>
-          ${this.escapeHtml(model.model)} (${this.escapeHtml(model.provider)})
-        </option>
-      `).join('');
-    } catch (error) {
-      console.error('Failed to load vision models:', error);
-      this.elements.modelSelect.innerHTML = '<option value="">Failed to load models</option>';
-    }
-  }
-
-  /**
-   * Scan the source folder for images
-   */
-  async scanFolder() {
-    const sourcePath = this.elements.sourcePath?.value || './SourceImages';
-
-    this.elements.scanBtn.disabled = true;
-    this.elements.scanBtn.textContent = 'Scanning...';
-
-    try {
-      const offset = (this.currentPage - 1) * this.limit;
-      const result = await this.api.scanPosters({
-        sourcePath,
-        offset,
-        limit: this.limit
+      const response = await fetch('/api/v1/posters/models', {
+        headers: { 'X-API-Key': 'posters-api-key-2024' }
       });
+      const result = await response.json();
 
-      if (result.data?.success) {
-        this.files = result.data.files || [];
-        this.totalFiles = result.data.totalFiles || 0;
-        this.hasMore = result.data.hasMore || false;
-
-        this.elements.totalImages.textContent = this.totalFiles;
-        this.updateUnprocessedCount();
-        this.renderFileList();
-        this.updatePagination();
-        this.updateActionButtons();
-      } else {
-        this.showError('Scan failed: ' + (result.data?.error || 'Unknown error'));
+      if (result.data?.models && this.elements.modelSelect) {
+        this.elements.modelSelect.innerHTML = result.data.models.map(m =>
+          `<option value="${m.key}" ${m.key === result.data.current ? 'selected' : ''}>${m.model}</option>`
+        ).join('');
       }
     } catch (error) {
-      console.error('Scan error:', error);
-      this.showError('Failed to scan folder: ' + error.message);
-    } finally {
-      this.elements.scanBtn.disabled = false;
-      this.elements.scanBtn.textContent = 'Scan Folder';
+      console.error('Failed to load models:', error);
+      if (this.elements.modelSelect) {
+        this.elements.modelSelect.innerHTML = '<option value="">Default Model</option>';
+      }
     }
   }
 
+  // ==========================================================================
+  // STEP 1: SESSION MANAGEMENT
+  // ==========================================================================
+
   /**
-   * Update unprocessed count (via processing status)
+   * Load all sessions
    */
-  async updateUnprocessedCount() {
+  async loadSessions() {
     try {
-      const result = await this.api.getProcessingStatus();
-      const processed = result.data?.processedCount || 0;
-      const unprocessed = this.totalFiles - processed;
-      this.elements.unprocessedCount.textContent = unprocessed >= 0 ? unprocessed : '--';
+      const response = await fetch('/api/v1/sessions', {
+        headers: { 'X-API-Key': 'posters-api-key-2024' }
+      });
+      const result = await response.json();
+
+      this.sessions = result.sessions || [];
+      this.renderSessionSelect();
+
+      if (this.sessions.length > 0 && !this.currentSessionId) {
+        // Auto-select the first session
+        await this.selectSession(this.sessions[0].sessionId);
+      }
     } catch (error) {
-      this.elements.unprocessedCount.textContent = '--';
+      console.error('Failed to load sessions:', error);
+      this.showError('Failed to load sessions: ' + error.message);
     }
   }
 
   /**
-   * Render the file list
+   * Render session dropdown
    */
-  renderFileList() {
-    if (this.files.length === 0) {
-      this.elements.fileList.innerHTML = `
-        <div class="file-list-empty">
-          <p>No images found</p>
-          <p>Check the source path and try again</p>
-        </div>
-      `;
+  renderSessionSelect() {
+    if (!this.elements.sessionSelect) return;
+
+    if (this.sessions.length === 0) {
+      this.elements.sessionSelect.innerHTML = '<option value="">No sessions - create one</option>';
+    } else {
+      this.elements.sessionSelect.innerHTML = this.sessions.map(s =>
+        `<option value="${s.sessionId}" ${s.sessionId === this.currentSessionId ? 'selected' : ''}>
+          ${this.escapeHtml(s.name)} (${s.imageCount} images)
+        </option>`
+      ).join('');
+    }
+  }
+
+  /**
+   * Select a session
+   */
+  async selectSession(sessionId) {
+    if (!sessionId) {
+      this.currentSessionId = null;
+      this.currentSession = null;
+      this.sessionImages = [];
+      this.selectedImages.clear();
+      this.updateUI();
       return;
     }
 
-    this.elements.fileList.innerHTML = this.files.map(file => `
-      <div class="file-item ${this.selectedFiles.has(file.path) ? 'selected' : ''}" data-path="${this.escapeHtml(file.path)}">
-        <input type="checkbox" ${this.selectedFiles.has(file.path) ? 'checked' : ''}>
+    this.currentSessionId = sessionId;
+
+    try {
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
+        headers: { 'X-API-Key': 'posters-api-key-2024' }
+      });
+      const result = await response.json();
+
+      this.currentSession = result.session;
+      await this.loadSessionImages();
+      this.updateUI();
+      this.addLogEntry(`Selected session: ${this.currentSession.name}`, 'info');
+    } catch (error) {
+      console.error('Failed to load session:', error);
+      this.showError('Failed to load session: ' + error.message);
+    }
+  }
+
+  /**
+   * Show new session form
+   */
+  showNewSessionForm() {
+    if (this.elements.newSessionName) {
+      this.elements.newSessionName.classList.remove('hidden');
+      this.elements.newSessionName.focus();
+    }
+    if (this.elements.createSessionBtn) {
+      this.elements.createSessionBtn.classList.remove('hidden');
+    }
+    if (this.elements.newSessionBtn) {
+      this.elements.newSessionBtn.classList.add('hidden');
+    }
+  }
+
+  /**
+   * Create a new session
+   */
+  async createSession() {
+    const name = this.elements.newSessionName?.value?.trim();
+    if (!name) {
+      this.showError('Please enter a session name');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/v1/sessions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': 'posters-api-key-2024'
+        },
+        body: JSON.stringify({ name })
+      });
+      const result = await response.json();
+
+      if (result.success && result.session) {
+        this.addLogEntry(`Created session: ${result.session.name}`, 'success');
+        await this.loadSessions();
+        await this.selectSession(result.session.sessionId);
+
+        // Hide form
+        if (this.elements.newSessionName) {
+          this.elements.newSessionName.value = '';
+          this.elements.newSessionName.classList.add('hidden');
+        }
+        if (this.elements.createSessionBtn) {
+          this.elements.createSessionBtn.classList.add('hidden');
+        }
+        if (this.elements.newSessionBtn) {
+          this.elements.newSessionBtn.classList.remove('hidden');
+        }
+      } else {
+        throw new Error(result.error || 'Failed to create session');
+      }
+    } catch (error) {
+      console.error('Failed to create session:', error);
+      this.showError('Failed to create session: ' + error.message);
+    }
+  }
+
+  /**
+   * Delete current session
+   */
+  async deleteSession() {
+    if (!this.currentSessionId) return;
+
+    if (this.sessionImages.length > 0) {
+      this.showError('Cannot delete session with images. Remove all images first.');
+      return;
+    }
+
+    const confirmed = confirm(`Delete session "${this.currentSession?.name}"?`);
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(this.currentSessionId)}`, {
+        method: 'DELETE',
+        headers: { 'X-API-Key': 'posters-api-key-2024' }
+      });
+      const result = await response.json();
+
+      if (result.success) {
+        this.addLogEntry(`Deleted session: ${this.currentSession.name}`, 'success');
+        this.currentSessionId = null;
+        this.currentSession = null;
+        await this.loadSessions();
+      } else {
+        throw new Error(result.error || 'Failed to delete session');
+      }
+    } catch (error) {
+      console.error('Failed to delete session:', error);
+      this.showError('Failed to delete session: ' + error.message);
+    }
+  }
+
+  // ==========================================================================
+  // STEP 2: UPLOAD TO SESSION
+  // ==========================================================================
+
+  /**
+   * Browse for local folder
+   */
+  async browseLocalFolder() {
+    if (!('showDirectoryPicker' in window)) {
+      this.showError('Your browser does not support folder selection. Use Chrome or Edge.');
+      return;
+    }
+
+    try {
+      const handle = await window.showDirectoryPicker();
+      this.localDirectoryHandle = handle;
+
+      if (this.elements.localFolderPath) {
+        this.elements.localFolderPath.textContent = handle.name;
+      }
+
+      await this.scanLocalFolder();
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        console.error('Failed to browse folder:', error);
+        this.showError('Failed to access folder: ' + error.message);
+      }
+    }
+  }
+
+  /**
+   * Scan local folder for images
+   */
+  async scanLocalFolder() {
+    if (!this.localDirectoryHandle) return;
+
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif'];
+    const files = [];
+
+    for await (const entry of this.localDirectoryHandle.values()) {
+      if (entry.kind === 'file') {
+        const name = entry.name.toLowerCase();
+        if (imageExtensions.some(ext => name.endsWith(ext))) {
+          const file = await entry.getFile();
+          files.push({
+            name: entry.name,
+            size: file.size,
+            handle: entry,
+            file: file
+          });
+        }
+      }
+    }
+
+    this.localFiles = files;
+    this.selectedLocalFiles.clear();
+
+    if (this.elements.localFileCount) {
+      this.elements.localFileCount.textContent = files.length;
+    }
+
+    this.renderLocalFileList();
+    this.updateLocalSelection();
+    this.addLogEntry(`Found ${files.length} images in local folder`, 'info');
+  }
+
+  /**
+   * Render local file list
+   */
+  renderLocalFileList() {
+    if (!this.elements.localFileList) return;
+
+    if (this.localFiles.length === 0) {
+      this.elements.localFileList.innerHTML = `
+        <div class="file-list-empty">
+          <p>No local folder selected</p>
+          <p>Click "Browse Local Folder" to select images</p>
+        </div>`;
+      return;
+    }
+
+    this.elements.localFileList.innerHTML = this.localFiles.map(file => `
+      <div class="file-item ${this.selectedLocalFiles.has(file.name) ? 'selected' : ''}" data-name="${this.escapeHtml(file.name)}">
+        <input type="checkbox" ${this.selectedLocalFiles.has(file.name) ? 'checked' : ''}>
         <div class="file-info">
-          <div class="filename">${this.escapeHtml(file.filename)}</div>
-          <div class="file-meta">${this.formatFileSize(file.sizeBytes)} • ${this.formatDate(file.modifiedAt)}</div>
+          <div class="filename">${this.escapeHtml(file.name)}</div>
+          <div class="file-meta">${this.formatFileSize(file.size)}</div>
         </div>
       </div>
     `).join('');
   }
 
   /**
-   * Handle click on file list item
+   * Handle click on local file list
    */
-  handleFileListClick(e) {
+  handleLocalFileClick(e) {
     const fileItem = e.target.closest('.file-item');
     if (!fileItem) return;
 
-    // Don't toggle if clicking directly on checkbox
-    if (e.target.type === 'checkbox') return;
-
-    const path = fileItem.dataset.path;
-    const checkbox = fileItem.querySelector('input[type="checkbox"]');
-
-    if (this.selectedFiles.has(path)) {
-      this.selectedFiles.delete(path);
+    const name = fileItem.dataset.name;
+    if (this.selectedLocalFiles.has(name)) {
+      this.selectedLocalFiles.delete(name);
       fileItem.classList.remove('selected');
-      checkbox.checked = false;
+      fileItem.querySelector('input').checked = false;
     } else {
-      this.selectedFiles.add(path);
+      this.selectedLocalFiles.add(name);
       fileItem.classList.add('selected');
-      checkbox.checked = true;
+      fileItem.querySelector('input').checked = true;
     }
-
-    this.updateSelectionCount();
-    this.updateActionButtons();
+    this.updateLocalSelection();
   }
 
-  /**
-   * Handle checkbox change
-   */
-  handleFileCheckboxChange(e) {
-    if (e.target.type !== 'checkbox') return;
+  selectAllLocal() {
+    this.localFiles.forEach(f => this.selectedLocalFiles.add(f.name));
+    this.renderLocalFileList();
+    this.updateLocalSelection();
+  }
 
-    const fileItem = e.target.closest('.file-item');
-    if (!fileItem) return;
+  deselectAllLocal() {
+    this.selectedLocalFiles.clear();
+    this.renderLocalFileList();
+    this.updateLocalSelection();
+  }
 
-    const path = fileItem.dataset.path;
-
-    if (e.target.checked) {
-      this.selectedFiles.add(path);
-      fileItem.classList.add('selected');
-    } else {
-      this.selectedFiles.delete(path);
-      fileItem.classList.remove('selected');
+  updateLocalSelection() {
+    const count = this.selectedLocalFiles.size;
+    if (this.elements.selectedLocalCount) {
+      this.elements.selectedLocalCount.textContent = count;
     }
-
-    this.updateSelectionCount();
-    this.updateActionButtons();
-  }
-
-  /**
-   * Select all files
-   */
-  selectAll() {
-    this.files.forEach(file => this.selectedFiles.add(file.path));
-    this.renderFileList();
-    this.updateSelectionCount();
-    this.updateActionButtons();
-  }
-
-  /**
-   * Deselect all files
-   */
-  deselectAll() {
-    this.selectedFiles.clear();
-    this.renderFileList();
-    this.updateSelectionCount();
-    this.updateActionButtons();
-  }
-
-  /**
-   * Update selection count display
-   */
-  updateSelectionCount() {
-    this.elements.selectedCount.textContent = this.selectedFiles.size;
-  }
-
-  /**
-   * Update action button states
-   */
-  updateActionButtons() {
-    const hasSelection = this.selectedFiles.size > 0;
-    const hasFiles = this.totalFiles > 0;
-
-    this.elements.previewBtn.disabled = this.selectedFiles.size !== 1;
-    this.elements.processBtn.disabled = !hasSelection;
-    this.elements.processAllBtn.disabled = !hasFiles;
-  }
-
-  /**
-   * Update pagination controls
-   */
-  updatePagination() {
-    const totalPages = Math.ceil(this.totalFiles / this.limit) || 1;
-
-    this.elements.filesPageInfo.textContent = `Page ${this.currentPage} of ${totalPages}`;
-    this.elements.filesPrevBtn.disabled = this.currentPage <= 1;
-    this.elements.filesNextBtn.disabled = !this.hasMore;
-  }
-
-  /**
-   * Go to previous page
-   */
-  prevPage() {
-    if (this.currentPage > 1) {
-      this.currentPage--;
-      this.scanFolder();
+    if (this.elements.uploadToSessionBtn) {
+      this.elements.uploadToSessionBtn.disabled = count === 0 || !this.currentSessionId;
     }
   }
 
   /**
-   * Go to next page
+   * Upload selected files to current session
    */
-  nextPage() {
-    if (this.hasMore) {
-      this.currentPage++;
-      this.scanFolder();
+  async uploadToSession() {
+    if (!this.currentSessionId) {
+      this.showError('Please select or create a session first');
+      return;
     }
-  }
 
-  /**
-   * Preview selected image
-   */
-  async previewSelected() {
-    if (this.selectedFiles.size !== 1) return;
+    const selectedFiles = this.localFiles.filter(f => this.selectedLocalFiles.has(f.name));
+    if (selectedFiles.length === 0) return;
 
-    const imagePath = Array.from(this.selectedFiles)[0];
-    const modelKey = this.elements.modelSelect?.value || undefined;
+    if (this.elements.uploadToSessionBtn) this.elements.uploadToSessionBtn.disabled = true;
+    if (this.elements.uploadProgress) this.elements.uploadProgress.classList.remove('hidden');
 
-    // Show modal with loading state
-    this.showPreviewModal(imagePath);
+    let uploaded = 0;
+    const total = selectedFiles.length;
 
     try {
-      const result = await this.api.previewPoster(imagePath, modelKey);
+      for (const localFile of selectedFiles) {
+        const file = localFile.file || await localFile.handle.getFile();
+        const formData = new FormData();
+        formData.append('file', file, localFile.name);
 
-      if (result.data?.success && result.data?.entity) {
-        this.currentPreviewEntity = result.data.entity;
-        this.renderPreviewData(result.data);
-      } else {
-        this.showPreviewError(result.data?.error || 'Extraction failed');
+        const response = await fetch(`/api/v1/sessions/${encodeURIComponent(this.currentSessionId)}/images`, {
+          method: 'POST',
+          headers: { 'X-API-Key': 'posters-api-key-2024' },
+          body: formData
+        });
+
+        if (!response.ok) {
+          const result = await response.json();
+          throw new Error(result.error || `Failed to upload ${localFile.name}`);
+        }
+
+        uploaded++;
+        this.updateUploadProgress(Math.round((uploaded / total) * 100), `Uploading ${uploaded} of ${total}...`);
       }
+
+      this.addLogEntry(`Uploaded ${uploaded} images to session`, 'success');
+
+      // Refresh session images
+      await this.loadSessionImages();
+
+      // Clear local selection
+      this.selectedLocalFiles.clear();
+      this.renderLocalFileList();
+      this.updateLocalSelection();
+
     } catch (error) {
-      console.error('Preview error:', error);
-      this.showPreviewError(error.message);
+      console.error('Upload failed:', error);
+      this.addLogEntry('Upload failed: ' + error.message, 'error');
+      this.showError('Upload failed: ' + error.message);
+    } finally {
+      if (this.elements.uploadProgress) this.elements.uploadProgress.classList.add('hidden');
+      if (this.elements.uploadToSessionBtn) this.elements.uploadToSessionBtn.disabled = false;
+    }
+  }
+
+  updateUploadProgress(percent, text) {
+    if (this.elements.uploadProgressFill) {
+      this.elements.uploadProgressFill.style.width = `${percent}%`;
+    }
+    if (this.elements.uploadProgressText) {
+      this.elements.uploadProgressText.textContent = text;
+    }
+  }
+
+  // ==========================================================================
+  // STEP 3: SELECT IMAGES FOR PROCESSING
+  // ==========================================================================
+
+  /**
+   * Load images from current session
+   */
+  async loadSessionImages() {
+    if (!this.currentSessionId) {
+      this.sessionImages = [];
+      this.selectedImages.clear();
+      this.renderSessionImages();
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(this.currentSessionId)}/images`, {
+        headers: { 'X-API-Key': 'posters-api-key-2024' }
+      });
+      const result = await response.json();
+
+      this.sessionImages = result.images || [];
+      this.selectedImages.clear();
+
+      if (this.elements.totalSessionImages) {
+        this.elements.totalSessionImages.textContent = this.sessionImages.length;
+      }
+
+      this.renderSessionImages();
+      this.updateImageSelection();
+
+    } catch (error) {
+      console.error('Failed to load session images:', error);
+      this.showError('Failed to load session images: ' + error.message);
     }
   }
 
   /**
-   * Show preview modal with loading state
+   * Render session images as thumbnail grid
    */
-  showPreviewModal(imagePath) {
-    // Set image source to file path (will work if served correctly)
-    this.elements.previewImage.src = '';
-    this.elements.previewImage.alt = 'Loading...';
+  renderSessionImages() {
+    if (!this.elements.sessionImageList) return;
 
-    // Show loading state
-    this.elements.previewLoading.classList.remove('hidden');
-    this.elements.previewData.classList.add('hidden');
-    this.elements.previewError.classList.add('hidden');
-    this.elements.previewCommitBtn.disabled = true;
-    this.elements.previewTime.textContent = '--';
-    this.elements.previewModel.textContent = '--';
+    let images = this.sessionImages;
 
-    // Show modal
-    this.elements.previewModal.classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
-  }
+    // Apply filter
+    if (this.filterText) {
+      images = images.filter(img => img.filename.toLowerCase().includes(this.filterText));
+    }
 
-  /**
-   * Render preview extraction data
-   */
-  renderPreviewData(data) {
-    const entity = data.entity;
+    if (images.length === 0) {
+      this.elements.sessionImageList.innerHTML = `
+        <div class="file-list-empty">
+          <p>${this.sessionImages.length === 0 ? 'No images in session' : 'No images match filter'}</p>
+          <p>Upload images using the section above</p>
+        </div>`;
+      return;
+    }
 
-    this.elements.previewLoading.classList.add('hidden');
-    this.elements.previewData.classList.remove('hidden');
-    this.elements.previewCommitBtn.disabled = false;
-    this.elements.previewTime.textContent = data.processingTimeMs || '--';
-    this.elements.previewModel.textContent = data.modelUsed || '--';
-
-    const fields = [
-      { label: 'Poster Type', value: entity.poster_type },
-      { label: 'Title', value: entity.title },
-      { label: 'Headliner', value: entity.headliner },
-      { label: 'Supporting Acts', value: entity.supporting_acts?.join(', ') },
-      { label: 'Venue', value: entity.venue_name },
-      { label: 'City', value: entity.city },
-      { label: 'State', value: entity.state },
-      { label: 'Event Date', value: entity.event_date },
-      { label: 'Year', value: entity.year },
-      { label: 'Ticket Price', value: entity.ticket_price },
-      { label: 'Door Time', value: entity.door_time },
-      { label: 'Show Time', value: entity.show_time },
-      { label: 'Age Restriction', value: entity.age_restriction },
-      { label: 'Visual Style', value: entity.visual_elements?.style }
-    ];
-
-    this.elements.previewData.innerHTML = fields.map(field => `
-      <div class="preview-field">
-        <div class="field-label">${this.escapeHtml(field.label)}</div>
-        <div class="field-value ${!field.value ? 'empty' : ''}">${field.value ? this.escapeHtml(String(field.value)) : 'Not detected'}</div>
+    this.elements.sessionImageList.innerHTML = images.map(img => `
+      <div class="image-card ${this.selectedImages.has(img.hash) ? 'selected' : ''}" data-hash="${img.hash}">
+        <div class="image-checkbox">
+          <input type="checkbox" ${this.selectedImages.has(img.hash) ? 'checked' : ''}>
+        </div>
+        <div class="image-thumbnail">
+          <img src="${img.url}" alt="${this.escapeHtml(img.filename)}" loading="lazy">
+        </div>
+        <div class="image-info">
+          <div class="image-name" title="${this.escapeHtml(img.filename)}">${this.escapeHtml(img.filename)}</div>
+          <div class="image-size">${this.formatFileSize(img.sizeBytes)}</div>
+        </div>
       </div>
     `).join('');
   }
 
   /**
-   * Show preview error
+   * Handle click on session image
    */
-  showPreviewError(message) {
-    this.elements.previewLoading.classList.add('hidden');
-    this.elements.previewData.classList.add('hidden');
-    this.elements.previewError.classList.remove('hidden');
-    this.elements.previewErrorMessage.textContent = message;
-    this.elements.previewCommitBtn.disabled = true;
+  handleImageClick(e) {
+    const card = e.target.closest('.image-card');
+    if (!card) return;
+
+    const hash = card.dataset.hash;
+    if (this.selectedImages.has(hash)) {
+      this.selectedImages.delete(hash);
+      card.classList.remove('selected');
+      card.querySelector('input').checked = false;
+    } else {
+      this.selectedImages.add(hash);
+      card.classList.add('selected');
+      card.querySelector('input').checked = true;
+    }
+    this.updateImageSelection();
   }
 
-  /**
-   * Close preview modal
-   */
-  closePreviewModal() {
-    this.elements.previewModal.classList.add('hidden');
-    document.body.style.overflow = '';
-    this.currentPreviewEntity = null;
+  selectAllImages() {
+    this.sessionImages.forEach(img => this.selectedImages.add(img.hash));
+    this.renderSessionImages();
+    this.updateImageSelection();
   }
 
-  /**
-   * Commit previewed entity to database
-   */
-  async commitPreview() {
-    if (!this.currentPreviewEntity) return;
+  deselectAllImages() {
+    this.selectedImages.clear();
+    this.renderSessionImages();
+    this.updateImageSelection();
+  }
 
-    this.elements.previewCommitBtn.disabled = true;
-    this.elements.previewCommitBtn.textContent = 'Committing...';
-
-    try {
-      const result = await this.api.commitPoster(this.currentPreviewEntity, this.elements.storeImages.checked);
-
-      if (result.data?.success) {
-        this.addLogEntry('Committed: ' + this.currentPreviewEntity.name, 'success');
-        this.closePreviewModal();
-        await this.updateUnprocessedCount();
-      } else {
-        this.showPreviewError('Commit failed: ' + (result.data?.error || 'Unknown error'));
-      }
-    } catch (error) {
-      console.error('Commit error:', error);
-      this.showPreviewError('Commit failed: ' + error.message);
-    } finally {
-      this.elements.previewCommitBtn.disabled = false;
-      this.elements.previewCommitBtn.textContent = 'Commit to Database';
+  updateImageSelection() {
+    const count = this.selectedImages.size;
+    if (this.elements.selectedImageCount) {
+      this.elements.selectedImageCount.textContent = count;
+    }
+    if (this.elements.processSelectedBtn) {
+      this.elements.processSelectedBtn.disabled = count === 0 || this.isProcessing;
+    }
+    if (this.elements.processAllBtn) {
+      this.elements.processAllBtn.disabled = this.sessionImages.length === 0 || this.isProcessing;
     }
   }
+
+  // ==========================================================================
+  // STEP 4: PROCESSING
+  // ==========================================================================
 
   /**
    * Process selected images
    */
   async processSelected() {
-    if (this.selectedFiles.size === 0) return;
-
-    const filePaths = Array.from(this.selectedFiles);
-    await this.startProcessing(filePaths);
+    const hashes = Array.from(this.selectedImages);
+    if (hashes.length === 0) return;
+    await this.runProcessing(hashes);
   }
 
   /**
-   * Process all unprocessed images
+   * Process all images in session
    */
   async processAll() {
-    await this.startProcessing(null); // null means process from source directory
+    const hashes = this.sessionImages.map(img => img.hash);
+    if (hashes.length === 0) return;
+    await this.runProcessing(hashes);
   }
 
   /**
-   * Start batch processing
+   * Run processing pipeline
    */
-  async startProcessing(filePaths) {
+  async runProcessing(hashes) {
+    if (!this.currentSessionId) {
+      this.showError('No session selected');
+      return;
+    }
+
     this.isProcessing = true;
     this.processingAborted = false;
 
     // Show progress section
-    this.elements.progressSection.classList.remove('hidden');
+    if (this.elements.progressSection) {
+      this.elements.progressSection.classList.remove('hidden');
+    }
     this.resetProgress();
+    this.resetPipelineStages();
 
-    // Disable action buttons
-    this.elements.previewBtn.disabled = true;
-    this.elements.processBtn.disabled = true;
-    this.elements.processAllBtn.disabled = true;
+    // Disable buttons
+    this.updateImageSelection();
 
-    const batchSize = parseInt(this.elements.batchSizeSelect.value) || 5;
+    const batchSize = parseInt(this.elements.batchSizeSelect?.value) || 5;
     const modelKey = this.elements.modelSelect?.value || undefined;
-    const skipIfExists = this.elements.skipExisting.checked;
-    const storeImages = this.elements.storeImages.checked;
 
-    let offset = 0;
-    let totalProcessed = 0;
-    let totalSucceeded = 0;
-    let totalFailed = 0;
-    let hasMore = true;
-
-    this.addLogEntry('Starting processing...', 'info');
+    this.setStage('download', 'active');
+    this.addLogEntry(`Processing ${hashes.length} images from session...`, 'info');
 
     try {
-      while (hasMore && !this.processingAborted) {
-        const options = {
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(this.currentSessionId)}/process`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': 'posters-api-key-2024'
+        },
+        body: JSON.stringify({
+          hashes,
           batchSize,
-          offset,
-          skipIfExists,
-          storeImages,
           modelKey
-        };
+        })
+      });
 
-        if (filePaths) {
-          options.filePaths = filePaths.slice(offset, offset + batchSize);
-          hasMore = offset + batchSize < filePaths.length;
-        }
+      const result = await response.json();
 
-        const result = await this.api.processPosters(options);
-        const data = result.data;
+      if (result.success) {
+        const { processed, succeeded, failed, results, sessionRemaining } = result;
 
-        if (data) {
-          totalProcessed += data.processed || 0;
-          totalSucceeded += data.succeeded || 0;
-          totalFailed += data.failed || 0;
-          hasMore = data.hasMore && !filePaths;
+        // Update progress
+        this.updateProgress(100, processed, succeeded, failed);
 
-          // Update progress UI
-          const total = filePaths ? filePaths.length : this.totalFiles;
-          const percent = Math.round((totalProcessed / total) * 100);
+        // Log results
+        results?.forEach(r => {
+          if (r.success) {
+            this.addLogEntry(`✓ ${r.title || r.entityName || r.hash} → moved to live`, 'success');
+          } else {
+            this.addLogEntry(`✗ ${r.hash}: ${r.error}`, 'error');
+          }
+        });
 
-          this.updateProgress(percent, totalProcessed, totalSucceeded, totalFailed);
+        // Complete stages
+        this.setStage('extract', 'completed');
+        this.setStage('store', 'completed');
+        this.setStage('complete', 'completed');
 
-          // Log individual results
-          data.entities?.forEach(entity => {
-            if (entity.success) {
-              this.addLogEntry(`✓ ${entity.title || entity.name}`, 'success');
-            } else {
-              this.addLogEntry(`✗ ${entity.name}: ${entity.error}`, 'error');
-            }
-          });
+        this.addLogEntry(`Processing complete: ${succeeded} succeeded, ${failed} failed, ${sessionRemaining} remaining in session`, 'success');
 
-          offset += batchSize;
-        } else {
-          this.addLogEntry('Batch returned no data', 'error');
-          break;
-        }
-      }
+        // Refresh session images (some moved to live)
+        await this.loadSessionImages();
+        await this.loadSessions(); // Update session counts
+        await this.loadDatabaseStats(); // Update live count
 
-      if (this.processingAborted) {
-        this.addLogEntry('Processing cancelled by user', 'info');
       } else {
-        this.addLogEntry(`Processing complete: ${totalSucceeded} succeeded, ${totalFailed} failed`, 'info');
+        throw new Error(result.error || 'Processing failed');
       }
+
     } catch (error) {
       console.error('Processing error:', error);
       this.addLogEntry('Error: ' + error.message, 'error');
+      this.setStage(this.currentStage || 'extract', 'error');
     } finally {
       this.isProcessing = false;
-      this.updateActionButtons();
-      await this.updateUnprocessedCount();
+      this.updateImageSelection();
     }
   }
 
-  /**
-   * Cancel processing
-   */
-  cancelProcessing() {
-    this.processingAborted = true;
-    this.elements.cancelProcessingBtn.disabled = true;
-    this.elements.cancelProcessingBtn.textContent = 'Cancelling...';
+  // ==========================================================================
+  // PROGRESS & UI HELPERS
+  // ==========================================================================
+
+  updateUI() {
+    // Show/hide sections based on state
+    const hasSession = !!this.currentSessionId;
+
+    if (this.elements.uploadSection) {
+      this.elements.uploadSection.classList.toggle('hidden', !hasSession);
+    }
+    if (this.elements.sessionImagesSection) {
+      this.elements.sessionImagesSection.classList.toggle('hidden', !hasSession);
+    }
+    if (this.elements.processSection) {
+      this.elements.processSection.classList.toggle('hidden', !hasSession);
+    }
+    if (this.elements.deleteSessionBtn) {
+      this.elements.deleteSessionBtn.disabled = !hasSession || this.sessionImages.length > 0;
+    }
+    if (this.elements.sessionImageCount) {
+      this.elements.sessionImageCount.textContent = this.currentSession?.imageCount || 0;
+    }
   }
 
-  /**
-   * Reset progress display
-   */
-  resetProgress() {
-    this.elements.progressFill.style.width = '0%';
-    this.elements.progressPercent.textContent = '0%';
-    this.elements.progressProcessed.textContent = '0';
-    this.elements.progressSucceeded.textContent = '0';
-    this.elements.progressFailed.textContent = '0';
-    this.elements.progressLog.innerHTML = '';
-    this.elements.cancelProcessingBtn.disabled = false;
-    this.elements.cancelProcessingBtn.textContent = 'Cancel';
+  setStage(stageName, status = 'active') {
+    this.currentStage = stageName;
+
+    this.stages.forEach((stage, index) => {
+      const stageEl = document.getElementById(`stage-${stage}`);
+      if (!stageEl) return;
+
+      stageEl.classList.remove('pending', 'active', 'completed', 'error');
+
+      const currentIndex = this.stages.indexOf(stageName);
+      if (stage === stageName) {
+        stageEl.classList.add(status);
+      } else if (index < currentIndex) {
+        stageEl.classList.add('completed');
+      } else {
+        stageEl.classList.add('pending');
+      }
+    });
+
+    this.updateStageDetails(stageName);
   }
 
-  /**
-   * Update progress display
-   */
+  updateStageDetails(stageName, progressText = '') {
+    const titles = {
+      download: 'Downloading images from S3...',
+      extract: 'Extracting data with vision model...',
+      store: 'Storing results and moving to live...',
+      complete: 'Processing complete!'
+    };
+
+    if (this.elements.stageDetailsTitle) {
+      this.elements.stageDetailsTitle.textContent = titles[stageName] || 'Processing...';
+    }
+    if (this.elements.stageDetailsProgress) {
+      this.elements.stageDetailsProgress.textContent = progressText;
+    }
+  }
+
+  resetPipelineStages() {
+    this.stages.forEach(stage => {
+      const el = document.getElementById(`stage-${stage}`);
+      if (el) {
+        el.classList.remove('pending', 'active', 'completed', 'error');
+        el.classList.add('pending');
+      }
+    });
+
+    if (this.elements.stageDetailsTitle) {
+      this.elements.stageDetailsTitle.textContent = 'Initializing...';
+    }
+    if (this.elements.stageDetailsProgress) {
+      this.elements.stageDetailsProgress.textContent = '';
+    }
+  }
+
   updateProgress(percent, processed, succeeded, failed) {
-    this.elements.progressFill.style.width = `${percent}%`;
-    this.elements.progressPercent.textContent = `${percent}%`;
-    this.elements.progressProcessed.textContent = processed;
-    this.elements.progressSucceeded.textContent = succeeded;
-    this.elements.progressFailed.textContent = failed;
+    if (this.elements.progressFill) this.elements.progressFill.style.width = `${percent}%`;
+    if (this.elements.progressPercent) this.elements.progressPercent.textContent = `${percent}%`;
+    if (this.elements.progressProcessed) this.elements.progressProcessed.textContent = processed;
+    if (this.elements.progressSucceeded) this.elements.progressSucceeded.textContent = succeeded;
+    if (this.elements.progressFailed) this.elements.progressFailed.textContent = failed;
   }
 
-  /**
-   * Add log entry
-   */
+  resetProgress() {
+    this.updateProgress(0, 0, 0, 0);
+    if (this.elements.progressLog) this.elements.progressLog.innerHTML = '';
+  }
+
   addLogEntry(message, type = 'info') {
+    if (!this.elements.progressLog) return;
+
+    const timestamp = new Date().toLocaleTimeString();
     const entry = document.createElement('div');
-    entry.className = `log-entry ${type}`;
-    entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    entry.className = `log-entry log-${type}`;
+    entry.innerHTML = `<span class="log-time">[${timestamp}]</span> ${this.escapeHtml(message)}`;
+
     this.elements.progressLog.appendChild(entry);
     this.elements.progressLog.scrollTop = this.elements.progressLog.scrollHeight;
   }
 
-  /**
-   * Show error message
-   */
-  showError(message) {
-    console.error(message);
-    this.addLogEntry(message, 'error');
+  toggleActivityLog() {
+    const container = document.querySelector('.activity-log-container');
+    if (container) {
+      const collapsed = container.classList.toggle('collapsed');
+      if (this.elements.toggleLogBtn) {
+        this.elements.toggleLogBtn.textContent = collapsed ? 'Show' : 'Hide';
+      }
+    }
   }
 
-  /**
-   * Format file size
-   */
+  cancelProcessing() {
+    this.processingAborted = true;
+    this.addLogEntry('Cancelling...', 'info');
+  }
+
+  showError(message) {
+    alert(message);
+  }
+
   formatFileSize(bytes) {
     if (!bytes) return '0 B';
     const units = ['B', 'KB', 'MB', 'GB'];
@@ -693,201 +949,301 @@ export class ProcessingManager {
     return `${bytes.toFixed(1)} ${units[i]}`;
   }
 
-  /**
-   * Format date
-   */
-  formatDate(dateStr) {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString();
-  }
-
-  /**
-   * Open folder browser modal
-   */
-  async openFolderBrowser() {
-    this.elements.folderBrowserModal.classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
-
-    // Load directories starting from current source path or default
-    const currentPath = this.elements.sourcePath?.value || './SourceImages';
-    await this.loadDirectories(currentPath);
-  }
-
-  /**
-   * Close folder browser modal
-   */
-  closeFolderBrowser() {
-    this.elements.folderBrowserModal.classList.add('hidden');
-    document.body.style.overflow = '';
-  }
-
-  /**
-   * Load directories for the folder browser
-   */
-  async loadDirectories(path = null) {
-    this.showFolderBrowserLoading(true);
-    this.hideFolderBrowserError();
-
-    try {
-      const params = path ? `?path=${encodeURIComponent(path)}` : '';
-      const response = await fetch(`/api/v1/posters/directories${params}`, {
-        headers: {
-          'X-API-Key': 'posters-api-key-2024'
-        }
-      });
-      const result = await response.json();
-
-      if (!response.ok || !result.data?.success) {
-        throw new Error(result.error || result.data?.error || 'Failed to load directories');
-      }
-
-      this.folderBrowserCurrentPath = result.data.currentPath;
-      this.folderBrowserParentPath = result.data.parentPath;
-      this.folderBrowserDirectories = result.data.directories || [];
-
-      this.renderFolderBrowserList();
-      this.updateFolderBrowserUI(result.data);
-    } catch (error) {
-      console.error('Failed to load directories:', error);
-      this.showFolderBrowserError(error.message);
-    } finally {
-      this.showFolderBrowserLoading(false);
-    }
-  }
-
-  /**
-   * Render the folder browser list
-   */
-  renderFolderBrowserList() {
-    if (this.folderBrowserDirectories.length === 0) {
-      this.elements.folderBrowserList.innerHTML = `
-        <div class="folder-browser-list-empty">
-          <p>No subdirectories found</p>
-        </div>
-      `;
-      return;
-    }
-
-    this.elements.folderBrowserList.innerHTML = this.folderBrowserDirectories.map(dir => `
-      <div class="folder-item" data-path="${this.escapeHtml(dir.path)}">
-        <span class="folder-icon">📁</span>
-        <span class="folder-name">${this.escapeHtml(dir.name)}</span>
-        <span class="folder-enter">→</span>
-      </div>
-    `).join('');
-  }
-
-  /**
-   * Update folder browser UI elements
-   */
-  updateFolderBrowserUI(data) {
-    // Update current path display
-    this.elements.folderBrowserCurrentPath.textContent = data.currentPath;
-    this.elements.folderBrowserCurrentPath.title = data.currentPath;
-
-    // Update parent button state
-    this.elements.folderBrowserUpBtn.disabled = !data.parentPath;
-
-    // Update image count
-    const imageCount = data.imageCount || 0;
-    this.elements.folderBrowserImageCount.textContent = `${imageCount} image${imageCount !== 1 ? 's' : ''} in this folder`;
-  }
-
-  /**
-   * Handle click on folder item (single click to select)
-   */
-  handleFolderClick(e) {
-    const folderItem = e.target.closest('.folder-item');
-    if (!folderItem) return;
-
-    // Remove selection from other items
-    this.elements.folderBrowserList.querySelectorAll('.folder-item').forEach(item => {
-      item.classList.remove('selected');
-    });
-
-    // Select this item
-    folderItem.classList.add('selected');
-  }
-
-  /**
-   * Handle double-click on folder item (navigate into)
-   */
-  handleFolderDoubleClick(e) {
-    const folderItem = e.target.closest('.folder-item');
-    if (!folderItem) return;
-
-    const path = folderItem.dataset.path;
-    if (path) {
-      this.loadDirectories(path);
-    }
-  }
-
-  /**
-   * Navigate to parent directory
-   */
-  navigateToParent() {
-    if (this.folderBrowserParentPath) {
-      this.loadDirectories(this.folderBrowserParentPath);
-    }
-  }
-
-  /**
-   * Navigate to home/default directory
-   */
-  navigateToHome() {
-    this.loadDirectories(null); // null will use the default path
-  }
-
-  /**
-   * Select the current folder
-   */
-  selectFolder() {
-    if (this.folderBrowserCurrentPath) {
-      this.elements.sourcePath.value = this.folderBrowserCurrentPath;
-      this.closeFolderBrowser();
-
-      // Auto-scan after selecting
-      this.scanFolder();
-    }
-  }
-
-  /**
-   * Show/hide folder browser loading state
-   */
-  showFolderBrowserLoading(show) {
-    this.elements.folderBrowserLoading.classList.toggle('hidden', !show);
-    this.elements.folderBrowserList.classList.toggle('hidden', show);
-  }
-
-  /**
-   * Show folder browser error
-   */
-  showFolderBrowserError(message) {
-    this.elements.folderBrowserError.classList.remove('hidden');
-    this.elements.folderBrowserErrorMessage.textContent = message;
-    this.elements.folderBrowserList.classList.add('hidden');
-  }
-
-  /**
-   * Hide folder browser error
-   */
-  hideFolderBrowserError() {
-    this.elements.folderBrowserError.classList.add('hidden');
-  }
-
-  /**
-   * Escape HTML
-   */
   escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
   }
+
+  // ==========================================================================
+  // DATABASE MANAGEMENT
+  // ==========================================================================
+
+  async loadDatabaseStats() {
+    try {
+      // Fetch database stats
+      const response = await fetch('/api/v1/posters/database/stats', {
+        headers: { 'X-API-Key': 'posters-api-key-2024' }
+      });
+      const result = await response.json();
+
+      if (result.data) {
+        if (this.elements.dbEntities) {
+          this.elements.dbEntities.textContent = result.data.neo4j?.entities?.toLocaleString() || '0';
+        }
+        if (this.elements.dbRelationships) {
+          this.elements.dbRelationships.textContent = result.data.neo4j?.relationships?.toLocaleString() || '0';
+        }
+        if (this.elements.dbEmbeddings) {
+          this.elements.dbEmbeddings.textContent = result.data.postgres?.embeddings?.toLocaleString() || '0';
+        }
+      }
+
+      // Fetch live folder stats
+      const liveResponse = await fetch('/api/v1/live/stats', {
+        headers: { 'X-API-Key': 'posters-api-key-2024' }
+      });
+      const liveResult = await liveResponse.json();
+
+      if (this.elements.dbLiveImages) {
+        this.elements.dbLiveImages.textContent = liveResult.totalImages?.toLocaleString() || '0';
+      }
+
+    } catch (error) {
+      console.error('Failed to load database stats:', error);
+      if (this.elements.dbEntities) this.elements.dbEntities.textContent = 'Error';
+      if (this.elements.dbRelationships) this.elements.dbRelationships.textContent = 'Error';
+      if (this.elements.dbEmbeddings) this.elements.dbEmbeddings.textContent = 'Error';
+      if (this.elements.dbLiveImages) this.elements.dbLiveImages.textContent = 'Error';
+    }
+  }
+
+  addDbLogEntry(message, type = 'info') {
+    const log = this.elements.dbActivityLog;
+    if (!log) return;
+
+    const empty = log.querySelector('.db-log-empty');
+    if (empty) empty.remove();
+
+    const entry = document.createElement('div');
+    entry.className = `db-log-entry ${type}`;
+
+    const timestamp = new Date().toLocaleTimeString();
+    entry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${this.escapeHtml(message)}`;
+
+    log.appendChild(entry);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  async createBackup() {
+    const btn = this.elements.createBackupBtn;
+    const status = this.elements.backupStatus;
+
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-icon">⏳</span> Creating Backup...';
+    }
+
+    this.addDbLogEntry('Creating backup...', 'info');
+
+    try {
+      const response = await fetch('/api/v1/posters/database/backup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': 'posters-api-key-2024'
+        },
+        body: JSON.stringify({ compress: false })
+      });
+      const result = await response.json();
+
+      if (result.data?.success) {
+        this.addDbLogEntry(`✓ Backup created: ${result.data.timestamp}`, 'success');
+
+        if (status) {
+          status.classList.remove('hidden', 'error');
+          status.innerHTML = `<span class="status-icon">✓</span> <span class="status-text">Backup created: ${result.data.timestamp}</span>`;
+        }
+      } else {
+        throw new Error(result.error || result.data?.error || 'Backup failed');
+      }
+    } catch (error) {
+      console.error('Backup failed:', error);
+      this.addDbLogEntry(`✗ Backup failed: ${error.message}`, 'error');
+
+      if (status) {
+        status.classList.remove('hidden');
+        status.classList.add('error');
+        status.innerHTML = '<span class="status-icon">✗</span> <span class="status-text">Backup failed</span>';
+      }
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">💾</span> Create Backup';
+      }
+    }
+  }
+
+  // ============================================================================
+  // Migration Methods
+  // ============================================================================
+
+  async checkMigrationStatus() {
+    const btn = this.elements.checkMigrationBtn;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-icon">⏳</span> Checking...';
+    }
+
+    try {
+      const response = await fetch('/api/v1/migration/status', {
+        headers: { 'X-API-Key': 'posters-api-key-2024' }
+      });
+      const result = await response.json();
+
+      if (result.status) {
+        const { oldStructure, newStructure } = result.status;
+
+        if (this.elements.migrationOldCount) {
+          this.elements.migrationOldCount.textContent = oldStructure.originalsCount?.toLocaleString() || '0';
+        }
+        if (this.elements.migrationLiveCount) {
+          this.elements.migrationLiveCount.textContent = newStructure.liveImagesCount?.toLocaleString() || '0';
+        }
+        if (this.elements.migrationSessionCount) {
+          this.elements.migrationSessionCount.textContent = newStructure.sessionsCount?.toLocaleString() || '0';
+        }
+
+        // Enable/disable migration buttons based on status
+        const needsMigration = oldStructure.originalsCount > 0;
+        if (this.elements.previewMigrationBtn) {
+          this.elements.previewMigrationBtn.disabled = !needsMigration;
+        }
+        if (this.elements.runMigrationBtn) {
+          this.elements.runMigrationBtn.disabled = !needsMigration;
+        }
+
+        // Hide any previous results
+        if (this.elements.migrationPreview) {
+          this.elements.migrationPreview.classList.add('hidden');
+        }
+        if (this.elements.migrationResult) {
+          this.elements.migrationResult.classList.add('hidden');
+        }
+
+        if (!needsMigration) {
+          this.addDbLogEntry('No migration needed - old structure is empty', 'info');
+        }
+      }
+    } catch (error) {
+      console.error('Failed to check migration status:', error);
+      this.addDbLogEntry(`Failed to check migration status: ${error.message}`, 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🔍</span> Check Status';
+      }
+    }
+  }
+
+  async previewMigration() {
+    const btn = this.elements.previewMigrationBtn;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-icon">⏳</span> Analyzing...';
+    }
+
+    this.addDbLogEntry('Analyzing migration...', 'info');
+
+    try {
+      const response = await fetch('/api/v1/migration/preview', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': 'posters-api-key-2024'
+        }
+      });
+      const result = await response.json();
+
+      if (this.elements.previewToLive) {
+        this.elements.previewToLive.textContent = result.wouldMigrateToLive?.toLocaleString() || '0';
+      }
+      if (this.elements.previewToLegacy) {
+        this.elements.previewToLegacy.textContent = result.wouldMoveToLegacy?.toLocaleString() || '0';
+      }
+      if (this.elements.previewAlreadyLive) {
+        this.elements.previewAlreadyLive.textContent = result.alreadyInLive?.toLocaleString() || '0';
+      }
+
+      if (this.elements.migrationPreview) {
+        this.elements.migrationPreview.classList.remove('hidden');
+      }
+
+      this.addDbLogEntry(
+        `Preview: ${result.wouldMigrateToLive} to Live, ${result.wouldMoveToLegacy} to Legacy, ${result.alreadyInLive} already migrated`,
+        'info'
+      );
+
+    } catch (error) {
+      console.error('Migration preview failed:', error);
+      this.addDbLogEntry(`Migration preview failed: ${error.message}`, 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">👁️</span> Preview Migration';
+      }
+    }
+  }
+
+  async runMigration() {
+    if (!confirm('Run migration? This will move images from the old structure to sessions/live folders.')) {
+      return;
+    }
+
+    const btn = this.elements.runMigrationBtn;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-icon">⏳</span> Migrating...';
+    }
+
+    this.addDbLogEntry('Starting migration...', 'info');
+
+    try {
+      const response = await fetch('/api/v1/migration/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': 'posters-api-key-2024'
+        }
+      });
+      const result = await response.json();
+
+      if (result.success && result.result) {
+        const r = result.result;
+
+        if (this.elements.resultToLive) {
+          this.elements.resultToLive.textContent = r.migratedToLive?.toLocaleString() || '0';
+        }
+        if (this.elements.resultToLegacy) {
+          this.elements.resultToLegacy.textContent = r.movedToLegacySession?.toLocaleString() || '0';
+        }
+        if (this.elements.resultErrors) {
+          this.elements.resultErrors.textContent = r.errors?.length?.toLocaleString() || '0';
+        }
+
+        if (this.elements.migrationResult) {
+          this.elements.migrationResult.classList.remove('hidden');
+        }
+        if (this.elements.migrationPreview) {
+          this.elements.migrationPreview.classList.add('hidden');
+        }
+
+        this.addDbLogEntry(
+          `✓ Migration complete: ${r.migratedToLive} to Live, ${r.movedToLegacySession} to Legacy, ${r.errors?.length || 0} errors`,
+          'success'
+        );
+
+        // Refresh stats
+        this.checkMigrationStatus();
+        this.loadDatabaseStats();
+        this.loadSessions();
+
+      } else {
+        throw new Error(result.error || 'Migration failed');
+      }
+
+    } catch (error) {
+      console.error('Migration failed:', error);
+      this.addDbLogEntry(`✗ Migration failed: ${error.message}`, 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">📦</span> Run Migration';
+      }
+    }
+  }
 }
 
-// Create and export singleton instance
+// Create and export singleton
 export const processingManager = new ProcessingManager();
-
-// Auto-initialize when processing tab is shown (handled by app.js)

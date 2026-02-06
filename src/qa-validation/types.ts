@@ -160,7 +160,7 @@ export interface QAJobStatus {
 // ============================================================================
 
 export type ValidatorName = 'artist' | 'venue' | 'date' | 'release' | 'poster_type';
-export type PosterType = 'concert' | 'festival' | 'comedy' | 'theater' | 'film' | 'release' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
+export type PosterType = 'concert' | 'festival' | 'comedy' | 'theater' | 'film' | 'album' | 'promo' | 'exhibition' | 'hybrid' | 'unknown';
 
 /**
  * Configuration for a QA validation job
@@ -199,7 +199,7 @@ export interface QAValidationConfig {
  */
 export const DEFAULT_QA_CONFIG: Required<Omit<QAValidationConfig, 'entityIds'>> = {
   entityTypes: ['Poster'],
-  posterTypes: ['concert', 'festival', 'comedy', 'theater', 'film', 'release', 'unknown'],
+  posterTypes: ['concert', 'festival', 'comedy', 'theater', 'film', 'album', 'unknown'],
   validators: ['artist', 'venue', 'date', 'release', 'poster_type'],
   minConfidenceThreshold: 0.7,
   includeUnverified: true,

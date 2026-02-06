@@ -11,6 +11,12 @@ export { OllamaVisionProvider } from './providers/OllamaVisionProvider.js';
 export { VLLMVisionProvider } from './providers/VLLMVisionProvider.js';
 export { TransformersVisionProvider } from './providers/TransformersVisionProvider.js';
 
+// Cloud Vision Providers
+export { BaseCloudVisionProvider, CloudVisionError } from './providers/BaseCloudVisionProvider.js';
+export { OpenAIVisionProvider } from './providers/OpenAIVisionProvider.js';
+export { AnthropicVisionProvider } from './providers/AnthropicVisionProvider.js';
+export { GoogleVisionProvider } from './providers/GoogleVisionProvider.js';
+
 // Storage - MinIO
 export { ImageStorageService, createImageStorageFromEnv } from './ImageStorageService.js';
 export type { ImageStorageConfig } from './ImageStorageService.js';

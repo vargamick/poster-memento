@@ -19,6 +19,10 @@ import { createProcessingRoutes } from './routes/processing.js';
 import { createImageRoutes } from './routes/images.js';
 import { createPosterRoutes } from './routes/posters.js';
 import { createQAValidationRoutes } from './routes/qa-validation.js';
+import { createIterativeProcessingRoutes } from './routes/iterative-processing.js';
+import { createSessionRoutes } from './routes/sessions.js';
+import { createLiveRoutes } from './routes/live.js';
+import { createMigrationRoutes } from './routes/migration.js';
 import { createImageStorageService, getStorageType } from '../image-processor/imageStorageFactory.js';
 import { QAValidationService } from '../qa-validation/QAValidationService.js';
 
@@ -152,7 +156,11 @@ export function createApiServer(
         images: '/api/v1/images',
         admin: '/api/v1/admin',
         processing: '/api/v1/processing',
-        qaValidation: '/api/v1/qa-validation'
+        sessions: '/api/v1/sessions',
+        live: '/api/v1/live',
+        migration: '/api/v1/migration',
+        qaValidation: '/api/v1/qa-validation',
+        iterative: '/api/v1/iterative'
       },
       documentation: '/api/docs',
       adminUI: '/admin'
@@ -259,6 +267,36 @@ export function createApiServer(
     }
   }
 
+  // Session routes (for upload sessions - staging areas for images)
+  if (process.env.SESSION_ROUTES_ENABLED !== 'false' && dependencies.knowledgeGraphManager) {
+    try {
+      apiV1.use('/sessions', createSessionRoutes(dependencies.knowledgeGraphManager));
+      logger.info('Session routes enabled at /api/v1/sessions');
+    } catch (error: any) {
+      logger.warn('Session routes not initialized', { error: error.message });
+    }
+  }
+
+  // Live routes (for canonical image storage - one per KG entity)
+  if (process.env.LIVE_ROUTES_ENABLED !== 'false' && dependencies.knowledgeGraphManager) {
+    try {
+      apiV1.use('/live', createLiveRoutes(dependencies.knowledgeGraphManager));
+      logger.info('Live routes enabled at /api/v1/live');
+    } catch (error: any) {
+      logger.warn('Live routes not initialized', { error: error.message });
+    }
+  }
+
+  // Migration routes (for migrating from old flat structure to session/live structure)
+  if (process.env.MIGRATION_ENABLED !== 'false') {
+    try {
+      apiV1.use('/migration', createMigrationRoutes(entityService));
+      logger.info('Migration routes enabled at /api/v1/migration');
+    } catch (error: any) {
+      logger.warn('Migration routes not initialized', { error: error.message });
+    }
+  }
+
   // QA Validation routes (for validating processed poster data)
   if (process.env.QA_VALIDATION_ENABLED !== 'false') {
     try {
@@ -271,6 +309,21 @@ export function createApiServer(
       logger.info('QA Validation routes enabled at /api/v1/qa-validation');
     } catch (error: any) {
       logger.warn('QA Validation routes not initialized', { error: error.message });
+    }
+  }
+
+  // Iterative Processing routes (for multi-phase poster processing)
+  if (process.env.ITERATIVE_PROCESSING_ENABLED !== 'false') {
+    try {
+      apiV1.use('/iterative', createIterativeProcessingRoutes(
+        entityService,
+        relationService,
+        searchService,
+        process.env.DISCOGS_TOKEN
+      ));
+      logger.info('Iterative Processing routes enabled at /api/v1/iterative');
+    } catch (error: any) {
+      logger.warn('Iterative Processing routes not initialized', { error: error.message });
     }
   }
 

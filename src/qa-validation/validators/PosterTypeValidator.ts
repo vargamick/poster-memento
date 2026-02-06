@@ -319,7 +319,7 @@ export class PosterTypeValidator extends BaseValidator {
 
         if (best.similarity >= this.config.partialThreshold) {
           return {
-            inferredType: 'release',
+            inferredType: 'album',
             confidence: best.similarity,
             source: 'musicbrainz',
             externalId: best.release.id,
@@ -354,12 +354,12 @@ export class PosterTypeValidator extends BaseValidator {
 
           if (best.similarity >= this.config.partialThreshold) {
             return {
-              inferredType: 'release',
+              inferredType: 'album',
               confidence: best.similarity,
               source: 'discogs',
               externalId: String(best.release.id),
               externalUrl: this.discogs.getReleaseUrl(best.release.id),
-              evidence: `Found release "${best.release.title}" in Discogs`,
+              evidence: `Found album "${best.release.title}" in Discogs`,
             };
           }
         }
@@ -453,10 +453,10 @@ export class PosterTypeValidator extends BaseValidator {
       };
     }
 
-    // Release: Headliner + Title but no venue (likely album promo)
+    // Album: Headliner + Title but no venue (likely album promo)
     if (hasHeadliner && hasTitle && !hasVenue && !hasDate) {
       return {
-        inferredType: 'release',
+        inferredType: 'album',
         confidence: 0.6,
         source: 'internal',
         evidence: `Has artist and title but no venue/date - likely album promo`,

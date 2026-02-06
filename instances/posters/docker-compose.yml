@@ -175,6 +175,7 @@ services:
       # Instance Configuration
       - CONFIG_PATH=/app/config/instance-config.json
       - UI_STATIC_PATH=/app/ui
+      - SOURCE_IMAGES_PATH=/app/source-images
 
       # Ollama Vision Model - use host's native Ollama for better performance
       - OLLAMA_URL=http://host.docker.internal:11434
@@ -187,6 +188,9 @@ services:
       # QA Validation API Keys
       - DISCOGS_TOKEN=${DISCOGS_TOKEN:-}
       - TMDB_API_KEY=${TMDB_API_KEY:-}
+
+      # Iterative Processing (multi-phase poster analysis)
+      - ITERATIVE_PROCESSING_ENABLED=true
     volumes:
       # Mount source images directory for processing
       - ./SourceImages:/app/source-images:ro
