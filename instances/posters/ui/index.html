@@ -679,5 +679,15 @@
   <script type="module" src="js/app.js"></script>
   <script type="module" src="js/processing.js"></script>
   <script type="module" src="js/qa-validation.js"></script>
+  <script type="module" src="js/tutorial.js"></script>
+  <script type="module">
+    // Initialize tutorial when DOM is ready and on processing tab
+    import { tutorial } from './js/tutorial.js';
+
+    document.addEventListener('DOMContentLoaded', () => {
+      // Initialize tutorial system
+      tutorial.init();
+    });
+  </script>
 </body>
 </html>

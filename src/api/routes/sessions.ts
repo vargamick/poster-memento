@@ -20,6 +20,24 @@ import { ArtistSplitter, type ValidatedArtist, splitAndValidateArtists } from '.
 import { splitVenueDate } from '../../image-processor/utils/venueDateSplitter.js';
 import { MusicBrainzClient } from '../../qa-validation/clients/MusicBrainzClient.js';
 import type { SessionProcessingResult, ProcessingResultMetadata, PosterEntity } from '../../image-processor/types.js';
+import { reviewExtractedData, applyCorrections, shouldProcessEntity, type ReviewResult } from '../../image-processor/ReviewPhase.js';
+import { VisionModelFactory } from '../../image-processor/VisionModelFactory.js';
+
+// ============================================================================
+// Entity Creation Configuration
+// ============================================================================
+
+/**
+ * Minimum confidence threshold for creating linked entities (Artist, Venue, Event)
+ * Entities below this threshold won't be created - their data will remain as
+ * observations on the Poster entity only.
+ */
+const ENTITY_CREATION_CONFIDENCE_THRESHOLD = 0.6;
+
+/**
+ * Minimum confidence for creating relationships between entities
+ */
+const RELATIONSHIP_CONFIDENCE_THRESHOLD = 0.5;
 
 // Configure multer for file uploads (memory storage)
 const upload = multer({
@@ -231,13 +249,20 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
 
   /**
    * POST /sessions/:sessionId/process - Process selected images from a session
+   *
+   * @body imageHashes - Array of image hashes to process (optional, processes all if not specified)
+   * @body modelKey - Vision model to use (default: minicpm-v-ollama)
+   * @body batchSize - Number of images to process in parallel (default: 5)
+   * @body enableReview - Enable LLM self-review phase for quality control (default: false)
+   *                      This adds an extra vision model call per image to verify extraction quality
    */
   router.post('/:sessionId/process', asyncHandler(async (req, res) => {
     const { sessionId } = req.params;
     const {
       imageHashes,
       modelKey = 'minicpm-v-ollama',
-      batchSize = 5
+      batchSize = 5,
+      enableReview = false  // Layer 2: LLM self-review (disabled by default for performance)
     } = req.body;
 
     const storage = await getStorageService();
@@ -291,8 +316,8 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
 
               let posterEntity = processingResult.entity;
 
-              // Clean and normalize the entity data
-              const { entity: cleanedEntity, extractionNotes } = cleanPosterData(posterEntity);
+              // Clean and normalize the entity data with enhanced validation
+              const { entity: cleanedEntity, extractionNotes, fieldConfidences, rejectedFields } = cleanPosterData(posterEntity);
               posterEntity = { ...posterEntity, ...cleanedEntity } as PosterEntity;
 
               // Log any extraction notes
@@ -300,6 +325,22 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
                 logger.info('Extraction notes for image', {
                   hash: image.hash,
                   notes: extractionNotes
+                });
+              }
+
+              // Log rejected fields (garbage data filtered out)
+              if (Object.keys(rejectedFields).length > 0) {
+                logger.warn('Fields rejected during validation', {
+                  hash: image.hash,
+                  rejectedFields
+                });
+              }
+
+              // Log field confidences for debugging
+              if (Object.keys(fieldConfidences).length > 0) {
+                logger.debug('Field confidence scores', {
+                  hash: image.hash,
+                  fieldConfidences
                 });
               }
 
@@ -313,6 +354,55 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
                   hash: image.hash,
                   notes: enrichmentResult.notes
                 });
+              }
+
+              // Layer 2: LLM Self-Review (optional - enabled via request body)
+              let reviewResult: ReviewResult | undefined;
+              if (enableReview) {
+                try {
+                  logger.info('Running LLM self-review', { hash: image.hash });
+
+                  const visionProvider = VisionModelFactory.createByName(modelKey);
+                  reviewResult = await reviewExtractedData(
+                    tempPath,
+                    posterEntity,
+                    visionProvider,
+                    { autoCorrect: true, confidenceThreshold: 0.6 }
+                  );
+
+                  logger.info('LLM review complete', {
+                    hash: image.hash,
+                    passed: reviewResult.passed,
+                    confidence: reviewResult.overallConfidence,
+                    corrections: reviewResult.corrections.length,
+                    flagged: reviewResult.flaggedForReview
+                  });
+
+                  // Apply corrections if review found issues
+                  if (reviewResult.corrections.length > 0) {
+                    posterEntity = applyCorrections(posterEntity, reviewResult) as PosterEntity;
+                    logger.info('Applied corrections from review', {
+                      hash: image.hash,
+                      corrections: reviewResult.corrections.map(c => ({
+                        field: c.field,
+                        from: c.originalValue,
+                        to: c.correctedValue
+                      }))
+                    });
+                  }
+
+                  // Check if we should proceed with entity creation
+                  const processDecision = shouldProcessEntity(reviewResult);
+                  if (!processDecision.shouldProcess) {
+                    throw new Error(`Review rejected: ${processDecision.reason}`);
+                  }
+                } catch (reviewError) {
+                  logger.warn('LLM review failed, continuing with pattern validation only', {
+                    hash: image.hash,
+                    error: reviewError instanceof Error ? reviewError.message : String(reviewError)
+                  });
+                  // Continue without review results
+                }
               }
 
               // Update entity metadata with S3 info
@@ -784,6 +874,7 @@ async function createPosterRelationshipsWithEvent(
 
   // Step 2: Create Artist entities and relationships
   // Use validated artists if available, otherwise fall back to original data
+  // ONLY create entities if confidence is above threshold
   const headlinerArtists: ValidatedArtist[] = [];
   const supportingArtists: ValidatedArtist[] = [];
 
@@ -793,7 +884,8 @@ async function createPosterRelationshipsWithEvent(
     // Rest are supporting
     supportingArtists.push(...entity.validatedArtists.slice(1));
   } else {
-    // Fall back to original data
+    // Fall back to original data - but only if headliner is not null/empty
+    // (cleanPosterData will have set it to null if it was invalid)
     if (entity.headliner) {
       headlinerArtists.push({
         name: entity.headliner,
@@ -812,8 +904,19 @@ async function createPosterRelationshipsWithEvent(
     }
   }
 
-  // Create headliner entities and relations
+  // Create headliner entities and relations - ONLY if confidence meets threshold
   for (const artist of headlinerArtists) {
+    // GATE: Skip entity creation if confidence is too low
+    if (artist.confidence < ENTITY_CREATION_CONFIDENCE_THRESHOLD) {
+      logger.info('Skipping Artist entity creation - low confidence', {
+        posterName: entity.name,
+        artistName: artist.name,
+        confidence: artist.confidence,
+        threshold: ENTITY_CREATION_CONFIDENCE_THRESHOLD
+      });
+      continue;
+    }
+
     const artistEntityName = `artist_${(artist.canonicalName ?? artist.name).toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
 
     try {
@@ -826,30 +929,19 @@ async function createPosterRelationshipsWithEvent(
         entityType: 'Artist',
         observations: artistObs
       }]);
+
+      logger.debug('Created Artist entity', { artistEntityName, confidence: artist.confidence });
     } catch {
       // Entity might already exist
     }
 
-    // Poster → HEADLINED_ON → Artist
-    relations.push({
-      from: entity.name,
-      to: artistEntityName,
-      relationType: 'HEADLINED_ON',
-      metadata: {
-        confidence: artist.confidence,
-        source: artist.source,
-        is_primary: true,
-        createdAt: now,
-        updatedAt: now
-      }
-    });
-
-    // Artist → HEADLINED → Event (if event exists)
-    if (eventName) {
+    // Only create relationships if confidence meets relationship threshold
+    if (artist.confidence >= RELATIONSHIP_CONFIDENCE_THRESHOLD) {
+      // Poster → HEADLINED_ON → Artist
       relations.push({
-        from: artistEntityName,
-        to: eventName,
-        relationType: 'HEADLINED',
+        from: entity.name,
+        to: artistEntityName,
+        relationType: 'HEADLINED_ON',
         metadata: {
           confidence: artist.confidence,
           source: artist.source,
@@ -858,11 +950,38 @@ async function createPosterRelationshipsWithEvent(
           updatedAt: now
         }
       });
+
+      // Artist → HEADLINED → Event (if event exists)
+      if (eventName) {
+        relations.push({
+          from: artistEntityName,
+          to: eventName,
+          relationType: 'HEADLINED',
+          metadata: {
+            confidence: artist.confidence,
+            source: artist.source,
+            is_primary: true,
+            createdAt: now,
+            updatedAt: now
+          }
+        });
+      }
     }
   }
 
-  // Create supporting artist entities and relations
+  // Create supporting artist entities and relations - ONLY if confidence meets threshold
   for (const artist of supportingArtists) {
+    // GATE: Skip entity creation if confidence is too low
+    if (artist.confidence < ENTITY_CREATION_CONFIDENCE_THRESHOLD) {
+      logger.info('Skipping supporting Artist entity creation - low confidence', {
+        posterName: entity.name,
+        artistName: artist.name,
+        confidence: artist.confidence,
+        threshold: ENTITY_CREATION_CONFIDENCE_THRESHOLD
+      });
+      continue;
+    }
+
     const artistEntityName = `artist_${(artist.canonicalName ?? artist.name).toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
 
     try {
@@ -875,30 +994,19 @@ async function createPosterRelationshipsWithEvent(
         entityType: 'Artist',
         observations: artistObs
       }]);
+
+      logger.debug('Created supporting Artist entity', { artistEntityName, confidence: artist.confidence });
     } catch {
       // Entity might already exist
     }
 
-    // Poster → PERFORMED_ON → Artist
-    relations.push({
-      from: entity.name,
-      to: artistEntityName,
-      relationType: 'PERFORMED_ON',
-      metadata: {
-        confidence: artist.confidence,
-        source: artist.source,
-        is_primary: false,
-        createdAt: now,
-        updatedAt: now
-      }
-    });
-
-    // Artist → PERFORMED_AT → Event (if event exists)
-    if (eventName) {
+    // Only create relationships if confidence meets relationship threshold
+    if (artist.confidence >= RELATIONSHIP_CONFIDENCE_THRESHOLD) {
+      // Poster → PERFORMED_ON → Artist
       relations.push({
-        from: artistEntityName,
-        to: eventName,
-        relationType: 'PERFORMED_AT',
+        from: entity.name,
+        to: artistEntityName,
+        relationType: 'PERFORMED_ON',
         metadata: {
           confidence: artist.confidence,
           source: artist.source,
@@ -907,12 +1015,33 @@ async function createPosterRelationshipsWithEvent(
           updatedAt: now
         }
       });
+
+      // Artist → PERFORMED_AT → Event (if event exists)
+      if (eventName) {
+        relations.push({
+          from: artistEntityName,
+          to: eventName,
+          relationType: 'PERFORMED_AT',
+          metadata: {
+            confidence: artist.confidence,
+            source: artist.source,
+            is_primary: false,
+            createdAt: now,
+            updatedAt: now
+          }
+        });
+      }
     }
   }
 
   // Step 3: Create venue and Event→Venue relation
+  // NOTE: entity.venue_name will be null if cleanPosterData rejected it as invalid
+  // This means we only reach here if the venue passed validation
   if (entity.venue_name) {
     const venueName = `venue_${entity.venue_name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+    // Use default venue confidence (could be enhanced with validation result)
+    const venueConfidence = 0.8;
 
     try {
       await knowledgeGraphManager.createEntities([{
@@ -924,6 +1053,8 @@ async function createPosterRelationshipsWithEvent(
           entity.state ? `State: ${entity.state}` : ''
         ].filter(Boolean)
       }]);
+
+      logger.debug('Created Venue entity', { venueName, confidence: venueConfidence });
     } catch {
       // Entity might already exist
     }
@@ -934,7 +1065,7 @@ async function createPosterRelationshipsWithEvent(
       to: venueName,
       relationType: 'ADVERTISES_VENUE',
       metadata: {
-        confidence: 0.8,
+        confidence: venueConfidence,
         source: 'vision',
         is_primary: true,
         createdAt: now,
@@ -949,7 +1080,7 @@ async function createPosterRelationshipsWithEvent(
         to: venueName,
         relationType: 'HELD_AT',
         metadata: {
-          confidence: 0.8,
+          confidence: venueConfidence,
           source: 'vision',
           is_primary: true,
           createdAt: now,
@@ -957,6 +1088,9 @@ async function createPosterRelationshipsWithEvent(
         }
       });
     }
+  } else {
+    // Venue was either not extracted or rejected during validation
+    logger.debug('No valid venue to create entity for', { posterName: entity.name });
   }
 
   // Step 4: Create HAS_TYPE relations for inferred_types

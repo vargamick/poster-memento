@@ -742,7 +742,7 @@ class ProcessingManager {
   }
 
   /**
-   * Run processing pipeline
+   * Run processing pipeline - processes images one at a time for real-time progress
    */
   async runProcessing(hashes) {
     if (!this.currentSessionId) {
@@ -763,58 +763,100 @@ class ProcessingManager {
     // Disable buttons
     this.updateImageSelection();
 
-    const batchSize = parseInt(this.elements.batchSizeSelect?.value) || 5;
     const modelKey = this.elements.modelSelect?.value || undefined;
+    const total = hashes.length;
+    let processed = 0;
+    let succeeded = 0;
+    let failed = 0;
 
-    this.setStage('download', 'active');
-    this.addLogEntry(`Processing ${hashes.length} images from session...`, 'info');
+    this.addLogEntry(`Processing ${total} images from session...`, 'info');
 
     try {
-      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(this.currentSessionId)}/process`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': 'posters-api-key-2024'
-        },
-        body: JSON.stringify({
-          imageHashes: hashes,
-          batchSize,
-          modelKey
-        })
-      });
+      for (let i = 0; i < hashes.length; i++) {
+        if (this.processingAborted) {
+          this.addLogEntry('Processing cancelled by user', 'info');
+          break;
+        }
 
-      const result = await response.json();
+        const hash = hashes[i];
+        const imageInfo = this.sessionImages.find(img => img.hash === hash);
+        const imageName = imageInfo?.filename || hash.substring(0, 8);
 
-      if (result.success) {
-        const { processed, succeeded, failed, results, sessionRemaining } = result;
+        // Stage 1: Download
+        this.setStage('download', 'active');
+        this.updateStageDetails('download', `${i + 1} of ${total}`);
+        this.addLogEntry(`📥 Downloading: ${imageName}`, 'info');
 
-        // Update progress
-        this.updateProgress(100, processed, succeeded, failed);
+        // Small delay to show download stage
+        await this.sleep(100);
 
-        // Log results
-        results?.forEach(r => {
-          if (r.success) {
-            this.addLogEntry(`✓ ${r.title || r.entityName || r.hash} → moved to live`, 'success');
+        // Stage 2: Extract
+        this.setStage('extract', 'active');
+        this.updateStageDetails('extract', `${i + 1} of ${total}`);
+        this.addLogEntry(`🔍 Extracting: ${imageName}`, 'info');
+
+        try {
+          const response = await fetch(`/api/v1/sessions/${encodeURIComponent(this.currentSessionId)}/process`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Key': 'posters-api-key-2024'
+            },
+            body: JSON.stringify({
+              imageHashes: [hash],
+              batchSize: 1,
+              modelKey
+            })
+          });
+
+          const result = await response.json();
+
+          if (result.success && result.results?.length > 0) {
+            const r = result.results[0];
+
+            // Stage 3: Store
+            this.setStage('store', 'active');
+            this.updateStageDetails('store', `${i + 1} of ${total}`);
+
+            if (r.success) {
+              succeeded++;
+              // Stage 4: Complete (for this image)
+              this.addLogEntry(`✓ ${r.title || r.entityName || imageName} → moved to live`, 'success');
+            } else {
+              failed++;
+              this.addLogEntry(`✗ ${imageName}: ${r.error}`, 'error');
+            }
           } else {
-            this.addLogEntry(`✗ ${r.hash}: ${r.error}`, 'error');
+            failed++;
+            this.addLogEntry(`✗ ${imageName}: ${result.error || 'Processing failed'}`, 'error');
           }
-        });
 
-        // Complete stages
-        this.setStage('extract', 'completed');
-        this.setStage('store', 'completed');
-        this.setStage('complete', 'completed');
+        } catch (error) {
+          failed++;
+          this.addLogEntry(`✗ ${imageName}: ${error.message}`, 'error');
+        }
 
-        this.addLogEntry(`Processing complete: ${succeeded} succeeded, ${failed} failed, ${sessionRemaining} remaining in session`, 'success');
+        processed++;
 
-        // Refresh session images (some moved to live)
-        await this.loadSessionImages();
-        await this.loadSessions(); // Update session counts
-        await this.loadDatabaseStats(); // Update live count
-
-      } else {
-        throw new Error(result.error || 'Processing failed');
+        // Update overall progress
+        const percent = Math.round((processed / total) * 100);
+        this.updateProgress(percent, processed, succeeded, failed);
       }
+
+      // Final stage update
+      if (succeeded > 0) {
+        this.setStage('complete', 'completed');
+        this.updateStageDetails('complete', '');
+      } else if (failed > 0) {
+        this.setStage('store', 'error');
+      }
+
+      this.addLogEntry(`Processing complete: ${succeeded} succeeded, ${failed} failed`, succeeded > 0 ? 'success' : 'error');
+
+      // Refresh session images (some moved to live)
+      await this.loadSessionImages();
+      await this.loadSessions(); // Update session counts
+      await this.loadDatabaseStats(); // Update live count
 
     } catch (error) {
       console.error('Processing error:', error);
@@ -824,6 +866,13 @@ class ProcessingManager {
       this.isProcessing = false;
       this.updateImageSelection();
     }
+  }
+
+  /**
+   * Sleep helper for UI updates
+   */
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   // ==========================================================================
@@ -853,6 +902,7 @@ class ProcessingManager {
 
   setStage(stageName, status = 'active') {
     this.currentStage = stageName;
+    const currentIndex = this.stages.indexOf(stageName);
 
     this.stages.forEach((stage, index) => {
       const stageEl = document.getElementById(`stage-${stage}`);
@@ -860,7 +910,6 @@ class ProcessingManager {
 
       stageEl.classList.remove('pending', 'active', 'completed', 'error');
 
-      const currentIndex = this.stages.indexOf(stageName);
       if (stage === stageName) {
         stageEl.classList.add(status);
       } else if (index < currentIndex) {
@@ -870,14 +919,31 @@ class ProcessingManager {
       }
     });
 
-    this.updateStageDetails(stageName);
+    // Update connectors between stages
+    this.updateConnectors(currentIndex, status);
+  }
+
+  /**
+   * Update connector lines between pipeline stages
+   */
+  updateConnectors(currentIndex, currentStatus) {
+    const connectors = document.querySelectorAll('.pipeline-connector');
+    connectors.forEach((connector, index) => {
+      connector.classList.remove('completed', 'active');
+
+      if (index < currentIndex) {
+        connector.classList.add('completed');
+      } else if (index === currentIndex - 1 && currentStatus === 'active') {
+        connector.classList.add('active');
+      }
+    });
   }
 
   updateStageDetails(stageName, progressText = '') {
     const titles = {
-      download: 'Downloading images from S3...',
+      download: 'Downloading image from S3...',
       extract: 'Extracting data with vision model...',
-      store: 'Storing results and moving to live...',
+      store: 'Storing results in database...',
       complete: 'Processing complete!'
     };
 
@@ -885,7 +951,7 @@ class ProcessingManager {
       this.elements.stageDetailsTitle.textContent = titles[stageName] || 'Processing...';
     }
     if (this.elements.stageDetailsProgress) {
-      this.elements.stageDetailsProgress.textContent = progressText;
+      this.elements.stageDetailsProgress.textContent = progressText ? `Image ${progressText}` : '';
     }
   }
 
@@ -896,6 +962,12 @@ class ProcessingManager {
         el.classList.remove('pending', 'active', 'completed', 'error');
         el.classList.add('pending');
       }
+    });
+
+    // Reset connectors
+    const connectors = document.querySelectorAll('.pipeline-connector');
+    connectors.forEach(connector => {
+      connector.classList.remove('completed', 'active');
     });
 
     if (this.elements.stageDetailsTitle) {

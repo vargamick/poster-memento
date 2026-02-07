@@ -6,12 +6,15 @@
 
 import { PosterEntity, TypeInference, VisionExtractionResult } from '../types.js';
 import { ValidationSource, ValidatorResult, QASuggestion } from '../../qa-validation/types.js';
+import { ReviewResult } from '../ReviewPhase.js';
+import type { EnrichmentPhaseResult } from './phases/EnrichmentPhase.js';
+import type { ConsensusResult } from '../consensus/ConsensusProcessor.js';
 
 // ============================================================================
 // Phase Names and Status
 // ============================================================================
 
-export type ProcessingPhaseName = 'type' | 'artist' | 'venue' | 'event' | 'assembly';
+export type ProcessingPhaseName = 'type' | 'artist' | 'venue' | 'event' | 'assembly' | 'enrichment' | 'review';
 
 export type PhaseStatus =
   | 'pending'
@@ -230,6 +233,19 @@ export interface ProcessingContext {
 // Iterative Processing Options
 // ============================================================================
 
+export interface ConsensusOptions {
+  /** Enable consensus mode (multi-model processing) */
+  enabled: boolean;
+  /** Model keys to use for consensus (from vision-models.json) */
+  models: string[];
+  /** Minimum agreement ratio to accept a value (default: 0.5 = majority) */
+  minAgreementRatio?: number;
+  /** Run models in parallel (faster) or sequential (less resource intensive) */
+  parallel?: boolean;
+  /** Timeout per model in ms */
+  modelTimeoutMs?: number;
+}
+
 export interface IterativeProcessingOptions {
   /** Processing mode */
   mode: 'iterative' | 'single-pass';
@@ -266,7 +282,18 @@ export interface IterativeProcessingOptions {
 
   /** External validation sources to use */
   validationSources?: ValidationSource[];
+
+  /** Consensus mode configuration */
+  consensus?: ConsensusOptions;
 }
+
+export const DEFAULT_CONSENSUS_OPTIONS: ConsensusOptions = {
+  enabled: false,
+  models: ['minicpm-v-ollama', 'llava-13b-ollama'],
+  minAgreementRatio: 0.5,
+  parallel: true,
+  modelTimeoutMs: 120000,
+};
 
 export const DEFAULT_ITERATIVE_OPTIONS: Required<IterativeProcessingOptions> = {
   mode: 'iterative',
@@ -281,6 +308,7 @@ export const DEFAULT_ITERATIVE_OPTIONS: Required<IterativeProcessingOptions> = {
   modelKey: '',
   pauseOnLowConfidence: false,
   validationSources: ['musicbrainz', 'discogs', 'internal'],
+  consensus: DEFAULT_CONSENSUS_OPTIONS,
 };
 
 // ============================================================================
@@ -384,11 +412,18 @@ export interface IterativeProcessingResult {
     venue?: VenuePhaseResult;
     event?: EventPhaseResult;
     assembly?: AssemblyPhaseResult;
+    enrichment?: EnrichmentPhaseResult;
+    review?: ReviewResult;
+    consensus?: ConsensusResult;
   };
   overallConfidence: number;
   fieldsNeedingReview: string[];
   processingTimeMs: number;
   error?: string;
+  /** Models used when consensus mode is enabled */
+  modelsUsed?: string[];
+  /** Agreement score between models (0-1) when consensus mode is enabled */
+  agreementScore?: number;
 }
 
 // ============================================================================

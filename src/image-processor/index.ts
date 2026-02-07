@@ -35,3 +35,12 @@ export type { ProcessingResult, ProcessingOptions } from './PosterProcessor.js';
 // Run Management
 export { ProcessingRunManager, createProcessingRunManager } from './ProcessingRunManager.js';
 export type { ProcessedFileRecord, RunMetadata, ProcessingRun } from './ProcessingRunManager.js';
+
+// Consensus Processing - Multi-model extraction with voting/merging
+export {
+  ConsensusProcessor,
+  ModelResult,
+  FieldConsensus,
+  ConsensusResult,
+  ConsensusConfig,
+} from './consensus/index.js';

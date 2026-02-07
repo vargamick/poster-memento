@@ -23,7 +23,9 @@ import {
   AssemblyPhaseResult,
   DEFAULT_ITERATIVE_OPTIONS,
   PosterType,
+  ConsensusOptions,
 } from './types.js';
+import { ConsensusProcessor, ConsensusResult } from '../consensus/ConsensusProcessor.js';
 import { PosterEntity, TypeInference, VisionModelProvider } from '../types.js';
 import { VisionModelFactory } from '../VisionModelFactory.js';
 import { PhaseManager } from './PhaseManager.js';
@@ -38,6 +40,8 @@ import { SearchService } from '../../core/services/SearchService.js';
 import { ArtistValidator } from '../../qa-validation/validators/ArtistValidator.js';
 import { MusicBrainzClient } from '../../qa-validation/clients/MusicBrainzClient.js';
 import { DiscogsClient } from '../../qa-validation/clients/DiscogsClient.js';
+import { EnrichmentPhase, EnrichmentPhaseResult } from './phases/EnrichmentPhase.js';
+import { reviewExtractedData, applyCorrections, ReviewResult } from '../ReviewPhase.js';
 
 /**
  * Dependencies for IterativeProcessor
@@ -47,6 +51,11 @@ export interface IterativeProcessorDependencies {
   relationService?: RelationService;
   searchService?: SearchService;
   discogsToken?: string;
+  tmdbApiKey?: string;
+  enableEnrichment?: boolean;
+  enableReview?: boolean;
+  /** Default consensus configuration */
+  consensusConfig?: Partial<ConsensusOptions>;
 }
 
 /**
@@ -68,6 +77,15 @@ export class IterativeProcessor {
   // Validators
   private artistValidator?: ArtistValidator;
 
+  // Enrichment and Review phases
+  private enrichmentPhase?: EnrichmentPhase;
+  private enableEnrichment: boolean;
+  private enableReview: boolean;
+
+  // Consensus processing
+  private consensusProcessor?: ConsensusProcessor;
+  private defaultConsensusConfig?: Partial<ConsensusOptions>;
+
   constructor(
     visionProvider?: VisionModelProvider,
     dependencies?: IterativeProcessorDependencies
@@ -80,6 +98,20 @@ export class IterativeProcessor {
 
     // Initialize validators
     this.initializeValidators(dependencies?.discogsToken);
+
+    // Initialize enrichment phase
+    this.enableEnrichment = dependencies?.enableEnrichment ?? true;
+    this.enableReview = dependencies?.enableReview ?? true;
+    if (this.enableEnrichment) {
+      this.enrichmentPhase = new EnrichmentPhase(
+        this.phaseManager,
+        dependencies?.tmdbApiKey || process.env.TMDB_API_KEY,
+        dependencies?.discogsToken || process.env.DISCOGS_TOKEN
+      );
+    }
+
+    // Store default consensus config for later use
+    this.defaultConsensusConfig = dependencies?.consensusConfig;
 
     // Initialize phase executors
     this.typePhase = new TypePhase(
@@ -131,6 +163,12 @@ export class IterativeProcessor {
       ...DEFAULT_ITERATIVE_OPTIONS,
       ...options,
     };
+
+    // Check if consensus mode is enabled - delegate to consensus processor
+    const consensusConfig = mergedOptions.consensus || this.defaultConsensusConfig;
+    if (consensusConfig?.enabled && consensusConfig.models?.length >= 2) {
+      return this.processWithConsensus(imagePath, options);
+    }
 
     // Generate poster ID from file hash
     const posterId = this.generatePosterId(imagePath);
@@ -185,9 +223,9 @@ export class IterativeProcessor {
       console.log(`[ITERATIVE] Phase 4: Event extraction for ${posterId}`);
       const eventResult = await this.eventPhase.execute(phaseInput);
 
-      // Phase 5: Assembly
+      // Phase 5: Assembly (initial)
       console.log(`[ITERATIVE] Phase 5: Assembly for ${posterId}`);
-      const assemblyResult = await this.assembleEntity(
+      let assemblyResult = await this.assembleEntity(
         posterId,
         imagePath,
         context,
@@ -197,6 +235,73 @@ export class IterativeProcessor {
         eventResult,
         mergedOptions
       );
+
+      // Phase 6: Enrichment (optional - enriches from external APIs)
+      let enrichmentResult: EnrichmentPhaseResult | undefined;
+      let enrichedArtistResult = artistResult;
+      if (this.enableEnrichment && this.enrichmentPhase && assemblyResult.entity) {
+        console.log(`[ITERATIVE] Phase 6: Enrichment for ${posterId}`);
+        enrichmentResult = await this.enrichmentPhase.execute(
+          assemblyResult.entity,
+          artistResult,
+          context
+        );
+
+        if (enrichmentResult.status === 'completed' || enrichmentResult.status === 'partial') {
+          // Update entity with enriched data
+          assemblyResult.entity = {
+            ...assemblyResult.entity,
+            ...enrichmentResult.enrichedEntity,
+          };
+          enrichedArtistResult = enrichmentResult.enhancedArtistResult || artistResult;
+
+          // Log enrichment results
+          if (enrichmentResult.enrichedFields.length > 0) {
+            console.log(`[ITERATIVE] Enriched fields: ${enrichmentResult.enrichedFields.join(', ')}`);
+          }
+        }
+      }
+
+      // Phase 7: Review (optional - LLM self-review for quality)
+      let reviewResult: ReviewResult | undefined;
+      if (this.enableReview && assemblyResult.entity) {
+        console.log(`[ITERATIVE] Phase 7: Review for ${posterId}`);
+        reviewResult = await reviewExtractedData(
+          imagePath,
+          assemblyResult.entity,
+          this.visionProvider
+        );
+
+        if (reviewResult.corrections.length > 0) {
+          console.log(`[ITERATIVE] Review found ${reviewResult.corrections.length} corrections`);
+          assemblyResult.entity = applyCorrections(assemblyResult.entity, reviewResult) as PosterEntity;
+        }
+      }
+
+      // Re-create related entities if we enriched film data (director, cast)
+      if (enrichmentResult && enrichedArtistResult !== artistResult) {
+        // Update artist-related entities with enriched data (director, cast for films)
+        const updatedRelated = await this.createRelatedEntities(
+          assemblyResult.entity!,
+          enrichedArtistResult,
+          venueResult,
+          eventResult
+        );
+
+        // Append new entities/relationships (don't duplicate)
+        for (const ent of updatedRelated.entities) {
+          if (!assemblyResult.entitiesCreated?.some(e => e.name === ent.name)) {
+            assemblyResult.entitiesCreated?.push(ent);
+          }
+        }
+        for (const rel of updatedRelated.relationships) {
+          if (!assemblyResult.relationshipsCreated?.some(r =>
+            r.from === rel.from && r.to === rel.to && r.type === rel.type
+          )) {
+            assemblyResult.relationshipsCreated?.push(rel);
+          }
+        }
+      }
 
       // Calculate overall metrics
       const overallConfidence = this.phaseManager.calculateOverallConfidence(context.sessionId);
@@ -213,6 +318,8 @@ export class IterativeProcessor {
           venue: venueResult,
           event: eventResult,
           assembly: assemblyResult,
+          enrichment: enrichmentResult,
+          review: reviewResult,
         },
         overallConfidence,
         fieldsNeedingReview,
@@ -1141,6 +1248,136 @@ export class IterativeProcessor {
         artist: artistValidatorOk,
       },
     };
+  }
+
+  /**
+   * Process an image using consensus mode (multiple models)
+   */
+  async processWithConsensus(
+    imagePath: string,
+    options: Partial<IterativeProcessingOptions> = {}
+  ): Promise<IterativeProcessingResult> {
+    const startTime = Date.now();
+    const consensusOptions = options.consensus || this.defaultConsensusConfig;
+
+    if (!consensusOptions?.enabled || !consensusOptions.models?.length) {
+      // Fall back to regular processing if consensus not enabled
+      return this.processImage(imagePath, options);
+    }
+
+    // Generate poster ID from file hash
+    const posterId = this.generatePosterId(imagePath);
+
+    // Check if file exists
+    if (!fs.existsSync(imagePath)) {
+      return {
+        success: false,
+        posterId,
+        imagePath,
+        phases: {},
+        overallConfidence: 0,
+        fieldsNeedingReview: [],
+        processingTimeMs: Date.now() - startTime,
+        error: `File not found: ${imagePath}`,
+      };
+    }
+
+    try {
+      // Create or get ConsensusProcessor
+      if (!this.consensusProcessor) {
+        this.consensusProcessor = new ConsensusProcessor({
+          models: consensusOptions.models,
+          minAgreementRatio: consensusOptions.minAgreementRatio ?? 0.5,
+          parallel: consensusOptions.parallel ?? true,
+          modelTimeoutMs: consensusOptions.modelTimeoutMs ?? 120000,
+        });
+      }
+
+      console.log(`[ITERATIVE] Processing ${posterId} with consensus (${consensusOptions.models.length} models)`);
+
+      // Run consensus extraction
+      const consensusResult = await this.consensusProcessor.processWithConsensus(imagePath);
+
+      if (!consensusResult.success) {
+        return {
+          success: false,
+          posterId,
+          imagePath,
+          phases: { consensus: consensusResult },
+          overallConfidence: 0,
+          fieldsNeedingReview: [],
+          processingTimeMs: Date.now() - startTime,
+          modelsUsed: consensusResult.modelsUsed,
+          agreementScore: consensusResult.agreementScore,
+          error: consensusResult.errors.join('; ') || 'Consensus processing failed',
+        };
+      }
+
+      console.log(`[ITERATIVE] Consensus complete: ${consensusResult.agreementScore.toFixed(2)} agreement`);
+
+      // Now run the regular iterative pipeline with the consensus entity as a starting point
+      // Use the first model from consensus for subsequent phases
+      const modifiedOptions: Partial<IterativeProcessingOptions> = {
+        ...options,
+        modelKey: consensusOptions.models[0],
+        consensus: undefined, // Don't recurse
+      };
+
+      // Process normally but merge consensus results
+      const regularResult = await this.processImage(imagePath, modifiedOptions);
+
+      // Merge consensus data with regular results
+      return {
+        ...regularResult,
+        phases: {
+          ...regularResult.phases,
+          consensus: consensusResult,
+        },
+        modelsUsed: consensusResult.modelsUsed,
+        agreementScore: consensusResult.agreementScore,
+        // Boost confidence if consensus had high agreement
+        overallConfidence: this.mergeConfidence(
+          regularResult.overallConfidence,
+          consensusResult.overallConfidence,
+          consensusResult.agreementScore
+        ),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        posterId,
+        imagePath,
+        phases: {},
+        overallConfidence: 0,
+        fieldsNeedingReview: [],
+        processingTimeMs: Date.now() - startTime,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Merge confidence scores from consensus and regular processing
+   */
+  private mergeConfidence(
+    regularConfidence: number,
+    consensusConfidence: number,
+    agreementScore: number
+  ): number {
+    // If models strongly agree, boost confidence
+    // Weight: 50% regular, 30% consensus, 20% agreement bonus
+    const agreementBonus = agreementScore > 0.8 ? 0.1 : agreementScore > 0.6 ? 0.05 : 0;
+    return Math.min(1, regularConfidence * 0.5 + consensusConfidence * 0.3 + agreementScore * 0.2 + agreementBonus);
+  }
+
+  /**
+   * Get consensus processor health status
+   */
+  async getConsensusHealth(): Promise<Record<string, boolean> | null> {
+    if (!this.consensusProcessor) {
+      return null;
+    }
+    return this.consensusProcessor.healthCheck();
   }
 
   /**

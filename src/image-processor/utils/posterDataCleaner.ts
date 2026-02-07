@@ -7,9 +7,21 @@
  * - Commentary detection and extraction
  * - Field validation (reject invalid data)
  * - Default value handling
+ * - Garbage detection (dates in artist fields, verbose explanations)
  */
 
 import type { PosterEntity, VisionExtractionResult } from '../types.js';
+
+// ============================================================================
+// Field Validation Result
+// ============================================================================
+
+export interface FieldValidationResult {
+  value: string | null;
+  isValid: boolean;
+  confidence: number;
+  rejectionReason?: string;
+}
 
 // ============================================================================
 // Commentary Detection
@@ -48,6 +60,77 @@ const COMMENTARY_PATTERNS = [
 ];
 
 /**
+ * Extended patterns for verbose LLM explanations
+ * These catch cases like "Not applicable as it's an album poster"
+ */
+const VERBOSE_EXPLANATION_PATTERNS = [
+  /not applicable/i,
+  /as it is/i,
+  /as it's/i,
+  /because it/i,
+  /since it/i,
+  /since this/i,
+  /this is a/i,
+  /this is an/i,
+  /which is/i,
+  /that is/i,
+  /rather than/i,
+  /instead of/i,
+  /does not/i,
+  /doesn't/i,
+  /cannot/i,
+  /can't/i,
+  /promotional material/i,
+  /advertisement/i,
+  /the poster/i,
+  /album poster/i,
+  /film poster/i,
+  /movie poster/i,
+  /release poster/i,
+  /mentioned above/i,
+  /as mentioned/i,
+  /prominently displayed/i,
+  /at the top/i,
+  /at the bottom/i,
+  /in the text/i,
+  /list of/i,
+  /multiple bands/i,
+  /multiple artists/i,
+  /various artists/i,
+];
+
+/**
+ * Day of week patterns - indicates a date, not an artist/venue name
+ */
+const DAY_OF_WEEK_PATTERN = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/i;
+
+/**
+ * Date-like patterns that shouldn't appear in artist/venue names
+ */
+const DATE_IN_FIELD_PATTERNS = [
+  // "Sunday 27 January" or "27 January"
+  /\b\d{1,2}\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b/i,
+  // "January 27"
+  /\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}\b/i,
+  // Day + date + month: "Sunday 27 January"
+  /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+\d{1,2}\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b/i,
+  // Abbreviated: "Sun 27 Jan"
+  /\b(mon|tue|wed|thu|fri|sat|sun)\s+\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i,
+];
+
+/**
+ * Maximum reasonable lengths for entity names
+ */
+const MAX_FIELD_LENGTHS = {
+  artist: 60,      // Most artist names are under 40 chars
+  venue: 80,       // Some venues have longer names
+  city: 40,
+  state: 40,
+  title: 120,
+  default: 100,
+};
+
+/**
  * Check if a string contains commentary rather than actual data
  */
 export function isCommentary(value: string | undefined | null): boolean {
@@ -58,6 +141,148 @@ export function isCommentary(value: string | undefined | null): boolean {
 
   // Check against commentary patterns
   return COMMENTARY_PATTERNS.some(pattern => pattern.test(trimmed));
+}
+
+/**
+ * Check if a string contains verbose LLM explanation
+ */
+export function isVerboseExplanation(value: string | undefined | null): boolean {
+  if (!value || typeof value !== 'string') return false;
+
+  const trimmed = value.trim();
+
+  // Check against verbose explanation patterns
+  return VERBOSE_EXPLANATION_PATTERNS.some(pattern => pattern.test(trimmed));
+}
+
+/**
+ * Check if a string looks like a date (shouldn't be in artist/venue fields)
+ */
+export function looksLikeDate(value: string | undefined | null): boolean {
+  if (!value || typeof value !== 'string') return false;
+
+  const trimmed = value.trim();
+
+  // Check for day of week at the start
+  if (DAY_OF_WEEK_PATTERN.test(trimmed.split(' ')[0])) {
+    return true;
+  }
+
+  // Check for date patterns
+  return DATE_IN_FIELD_PATTERNS.some(pattern => pattern.test(trimmed));
+}
+
+/**
+ * Check if a value exceeds reasonable length for its field type
+ */
+export function exceedsMaxLength(value: string | undefined | null, fieldType: keyof typeof MAX_FIELD_LENGTHS = 'default'): boolean {
+  if (!value || typeof value !== 'string') return false;
+
+  const maxLen = MAX_FIELD_LENGTHS[fieldType] || MAX_FIELD_LENGTHS.default;
+  return value.trim().length > maxLen;
+}
+
+// ============================================================================
+// Field-Specific Validation
+// ============================================================================
+
+/**
+ * Validate an artist/headliner name
+ * Returns null if invalid, cleaned value if valid
+ */
+export function validateArtistName(value: string | undefined | null): FieldValidationResult {
+  if (!value || typeof value !== 'string') {
+    return { value: null, isValid: false, confidence: 0, rejectionReason: 'Empty value' };
+  }
+
+  const trimmed = value.trim();
+
+  // Check for commentary
+  if (isCommentary(trimmed)) {
+    return { value: null, isValid: false, confidence: 0, rejectionReason: 'Commentary detected' };
+  }
+
+  // Check for verbose explanation
+  if (isVerboseExplanation(trimmed)) {
+    return { value: null, isValid: false, confidence: 0, rejectionReason: `Verbose explanation: "${trimmed.slice(0, 50)}..."` };
+  }
+
+  // Check for date patterns (artist names shouldn't look like dates)
+  if (looksLikeDate(trimmed)) {
+    return { value: null, isValid: false, confidence: 0, rejectionReason: `Looks like a date: "${trimmed}"` };
+  }
+
+  // Check length
+  if (exceedsMaxLength(trimmed, 'artist')) {
+    return { value: null, isValid: false, confidence: 0, rejectionReason: `Too long (${trimmed.length} chars): "${trimmed.slice(0, 50)}..."` };
+  }
+
+  // Check for suspicious patterns (spacing issues like "N O T _ A P P L I C A B L E")
+  if (/^[A-Z]\s[A-Z]\s[A-Z]/.test(trimmed) || /_{2,}/.test(trimmed)) {
+    return { value: null, isValid: false, confidence: 0, rejectionReason: `Suspicious formatting: "${trimmed}"` };
+  }
+
+  // Passed all checks - calculate confidence based on characteristics
+  let confidence = 0.8;
+
+  // Reduce confidence for very short names
+  if (trimmed.length < 3) confidence -= 0.2;
+
+  // Reduce confidence for names with lots of numbers
+  const digitRatio = (trimmed.match(/\d/g) || []).length / trimmed.length;
+  if (digitRatio > 0.3) confidence -= 0.2;
+
+  // Reduce confidence if it contains common venue words (might be mixed up)
+  if (/\b(hotel|theatre|theater|hall|arena|stadium|club|bar|pub|venue)\b/i.test(trimmed)) {
+    confidence -= 0.15;
+  }
+
+  return {
+    value: trimmed,
+    isValid: true,
+    confidence: Math.max(0.3, confidence)
+  };
+}
+
+/**
+ * Validate a venue name
+ * Returns null if invalid, cleaned value if valid
+ */
+export function validateVenueName(value: string | undefined | null): FieldValidationResult {
+  if (!value || typeof value !== 'string') {
+    return { value: null, isValid: false, confidence: 0, rejectionReason: 'Empty value' };
+  }
+
+  const trimmed = value.trim();
+
+  // Check for commentary
+  if (isCommentary(trimmed)) {
+    return { value: null, isValid: false, confidence: 0, rejectionReason: 'Commentary detected' };
+  }
+
+  // Check for verbose explanation
+  if (isVerboseExplanation(trimmed)) {
+    return { value: null, isValid: false, confidence: 0, rejectionReason: `Verbose explanation: "${trimmed.slice(0, 50)}..."` };
+  }
+
+  // Check length
+  if (exceedsMaxLength(trimmed, 'venue')) {
+    return { value: null, isValid: false, confidence: 0, rejectionReason: `Too long (${trimmed.length} chars): "${trimmed.slice(0, 50)}..."` };
+  }
+
+  // Passed all checks
+  let confidence = 0.8;
+
+  // Boost confidence for names containing venue-like words
+  if (/\b(hotel|theatre|theater|hall|arena|stadium|club|bar|pub|venue|room|centre|center|palace|house)\b/i.test(trimmed)) {
+    confidence += 0.1;
+  }
+
+  return {
+    value: trimmed,
+    isValid: true,
+    confidence: Math.min(1.0, confidence)
+  };
 }
 
 /**
@@ -299,6 +524,12 @@ export function cleanTextField(value: string | undefined | null): string | null 
   // Reject very short values that are likely garbage
   if (cleaned.length < 2) return null;
 
+  // Reject verbose explanations
+  if (isVerboseExplanation(cleaned)) return null;
+
+  // Reject excessively long values (likely explanations)
+  if (cleaned.length > MAX_FIELD_LENGTHS.default) return null;
+
   return cleaned;
 }
 
@@ -320,6 +551,10 @@ export function cleanStringArray(values: string[] | undefined | null): string[] 
 export interface CleanedPosterData {
   entity: Partial<PosterEntity>;
   extractionNotes: string[];
+  /** Confidence scores for key fields */
+  fieldConfidences: Record<string, number>;
+  /** Fields that were rejected with reasons */
+  rejectedFields: Record<string, string>;
 }
 
 /**
@@ -327,26 +562,47 @@ export interface CleanedPosterData {
  */
 export function cleanPosterData(
   entity: Partial<PosterEntity>,
-  extractionResult?: VisionExtractionResult
+  _extractionResult?: VisionExtractionResult
 ): CleanedPosterData {
   const notes: string[] = [];
+  const fieldConfidences: Record<string, number> = {};
+  const rejectedFields: Record<string, string> = {};
 
-  // Clean title
+  // Validate headliner with field-specific validation
+  const headlinerValidation = validateArtistName(entity.headliner);
+  if (!headlinerValidation.isValid && entity.headliner) {
+    notes.push(`Headliner rejected: ${headlinerValidation.rejectionReason}`);
+    rejectedFields['headliner'] = headlinerValidation.rejectionReason || 'Invalid';
+  } else if (headlinerValidation.isValid) {
+    fieldConfidences['headliner'] = headlinerValidation.confidence;
+  }
+
+  // Validate venue with field-specific validation
+  const venueValidation = validateVenueName(entity.venue_name);
+  if (!venueValidation.isValid && entity.venue_name) {
+    notes.push(`Venue rejected: ${venueValidation.rejectionReason}`);
+    rejectedFields['venue_name'] = venueValidation.rejectionReason || 'Invalid';
+  } else if (venueValidation.isValid) {
+    fieldConfidences['venue_name'] = venueValidation.confidence;
+  }
+
+  // Validate supporting acts
+  const validatedSupportingActs: string[] = [];
+  if (entity.supporting_acts && Array.isArray(entity.supporting_acts)) {
+    for (const act of entity.supporting_acts) {
+      const actValidation = validateArtistName(act);
+      if (actValidation.isValid && actValidation.value) {
+        validatedSupportingActs.push(actValidation.value);
+      } else if (act) {
+        notes.push(`Supporting act rejected: "${act.slice(0, 30)}..." - ${actValidation.rejectionReason}`);
+      }
+    }
+  }
+
+  // Clean title (less strict)
   const titleResult = extractCommentary(entity.title);
   if (titleResult.commentary) {
-    notes.push(`Title: ${titleResult.commentary}`);
-  }
-
-  // Clean headliner
-  const headlinerResult = extractCommentary(entity.headliner);
-  if (headlinerResult.commentary) {
-    notes.push(`Headliner: ${headlinerResult.commentary}`);
-  }
-
-  // Clean venue
-  const venueResult = extractCommentary(entity.venue_name);
-  if (venueResult.commentary) {
-    notes.push(`Venue: ${venueResult.commentary}`);
+    notes.push(`Title had commentary: ${titleResult.commentary}`);
   }
 
   // Clean and normalize date
@@ -354,7 +610,7 @@ export function cleanPosterData(
   const normalizedDate = normalizeDate(originalDate);
   const dateCommentary = extractCommentary(originalDate);
   if (dateCommentary.commentary) {
-    notes.push(`Date: ${dateCommentary.commentary}`);
+    notes.push(`Date had commentary: ${dateCommentary.commentary}`);
   }
   if (originalDate && !normalizedDate && !dateCommentary.commentary) {
     notes.push(`Date could not be parsed: "${originalDate}"`);
@@ -372,22 +628,19 @@ export function cleanPosterData(
   // Calculate decade
   const decade = year ? `${Math.floor(year / 10) * 10}s` : undefined;
 
-  // Clean supporting acts
-  const cleanedSupportingActs = cleanStringArray(entity.supporting_acts);
-
-  // Build cleaned entity
+  // Build cleaned entity - use validated values, null for rejected
   const cleanedEntity: Partial<PosterEntity> = {
     ...entity,
     title: cleanTextField(entity.title),
-    headliner: cleanTextField(entity.headliner),
-    venue_name: cleanTextField(entity.venue_name),
+    headliner: headlinerValidation.value,  // null if rejected
+    venue_name: venueValidation.value,      // null if rejected
     city: cleanTextField(entity.city),
     state: cleanTextField(entity.state),
     country: cleanTextField(entity.country),
     event_date: normalizedDate,
     year,
     decade,
-    supporting_acts: cleanedSupportingActs.length > 0 ? cleanedSupportingActs : undefined,
+    supporting_acts: validatedSupportingActs.length > 0 ? validatedSupportingActs : undefined,
     ticket_price: cleanTextField(entity.ticket_price),
     door_time: cleanTextField(entity.door_time),
     show_time: cleanTextField(entity.show_time),
@@ -401,5 +654,7 @@ export function cleanPosterData(
   return {
     entity: cleanedEntity,
     extractionNotes: notes,
+    fieldConfidences,
+    rejectedFields,
   };
 }

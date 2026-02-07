@@ -154,6 +154,12 @@ services:
       - PGUSER=posters
       - PGPASSWORD=posters_password
       - PGDATABASE=posters
+      # AdminService uses POSTGRES_* prefixed variables
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=posters
+      - POSTGRES_PASSWORD=posters_password
+      - POSTGRES_DATABASE=posters
 
       # MinIO Connection (internal Docker network) - used as fallback if S3 not configured
       - MINIO_ENDPOINT=minio:9000
@@ -179,6 +185,11 @@ services:
 
       # Ollama Vision Model - use host's native Ollama for better performance
       - OLLAMA_URL=http://host.docker.internal:11434
+
+      # Cloud Vision Provider API Keys
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
 
       # Embedding Configuration (optional - set your key)
       # - VOYAGE_API_KEY=your-voyage-api-key
