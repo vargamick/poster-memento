@@ -239,7 +239,7 @@ class ProcessingManager {
       if (result.data?.models && this.elements.modelSelect) {
         const models = result.data.models;
         this.elements.modelSelect.innerHTML = models.map(m =>
-          `<option value="${m.key}" ${m.key === result.data.current ? 'selected' : ''}>${m.model}</option>`
+          `<option value="${m.key}" ${m.key === result.data.current ? 'selected' : ''}>${m.description || m.key}</option>`
         ).join('');
 
         // Populate consensus model checklist
@@ -250,7 +250,7 @@ class ProcessingManager {
             const provider = m.key.split('-').pop() || '';
             return `<label class="consensus-model-item">
               <input type="checkbox" value="${m.key}" ${checked}>
-              <span class="model-name">${m.model}</span>
+              <span class="model-name">${m.description || m.key}</span>
               <span class="model-provider">${provider}</span>
             </label>`;
           }).join('');

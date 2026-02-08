@@ -7,6 +7,7 @@
  */
 
 import { Router } from 'express';
+import { Readable } from 'stream';
 import * as crypto from 'crypto';
 import multer from 'multer';
 import { asyncHandler, ValidationError, NotFoundError, ConflictError } from '../middleware/errorHandler.js';
@@ -93,6 +94,20 @@ function getArtistSplitter(): ArtistSplitter {
 }
 
 /**
+ * Convert a public/external MinIO URL to an internal URL for server-side fetching.
+ */
+function rewriteToInternal(url: string): string {
+  if (url.includes('.amazonaws.com') || url.includes('.s3.')) {
+    return url;
+  }
+  const publicUrl = process.env.MINIO_PUBLIC_URL;
+  const endpoint = process.env.MINIO_ENDPOINT;
+  if (!publicUrl || !endpoint) return url;
+  const internalBase = endpoint.startsWith('http') ? endpoint : `http://${endpoint}`;
+  return url.replace(publicUrl, internalBase);
+}
+
+/**
  * Create session routes
  */
 export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager): Router {
@@ -170,6 +185,48 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
   }));
 
   /**
+   * GET /sessions/:sessionId/images/:hash/file - Proxy session image content
+   * Streams the image through the API server so it works from any origin (ngrok, etc.)
+   * Must be defined before /:sessionId/images to avoid route conflicts.
+   */
+  router.get('/:sessionId/images/:hash/file', asyncHandler(async (req, res) => {
+    const { sessionId, hash } = req.params;
+    const storage = await getStorageService();
+
+    const session = await storage.getSession(sessionId);
+    if (!session) {
+      throw new NotFoundError(`Session not found: ${sessionId}`);
+    }
+
+    const images = await storage.listSessionImages(sessionId);
+    const image = images.find(img => img.hash === hash);
+    if (!image || !image.url) {
+      throw new NotFoundError(`Image not found: ${hash}`);
+    }
+
+    const internalUrl = rewriteToInternal(image.url);
+    const fetchResponse = await fetch(internalUrl);
+
+    if (!fetchResponse.ok) {
+      throw new NotFoundError(`Failed to fetch image: ${fetchResponse.status}`);
+    }
+
+    const contentType = fetchResponse.headers.get('content-type') || 'image/jpeg';
+    const contentLength = fetchResponse.headers.get('content-length');
+
+    res.set('Content-Type', contentType);
+    res.set('Cache-Control', 'public, max-age=3600');
+    if (contentLength) res.set('Content-Length', contentLength);
+
+    if (fetchResponse.body) {
+      const nodeStream = Readable.fromWeb(fetchResponse.body as any);
+      nodeStream.pipe(res);
+    } else {
+      res.end();
+    }
+  }));
+
+  /**
    * GET /sessions/:sessionId/images - List images in a session
    */
   router.get('/:sessionId/images', asyncHandler(async (req, res) => {
@@ -183,10 +240,16 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
 
     const images = await storage.listSessionImages(sessionId);
 
+    // Rewrite URLs to use proxy endpoints instead of direct MinIO URLs
+    const proxiedImages = images.map(img => ({
+      ...img,
+      url: `/api/v1/sessions/${sessionId}/images/${img.hash}/file`
+    }));
+
     res.json({
       sessionId,
-      images,
-      total: images.length
+      images: proxiedImages,
+      total: proxiedImages.length
     });
   }));
 

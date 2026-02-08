@@ -45,13 +45,11 @@ export function createLiveRoutes(knowledgeGraphManager: KnowledgeGraphManager): 
     // Apply pagination
     const paginatedImages = allImages.slice(offset, offset + limit);
 
-    // Generate fresh presigned URLs
-    const imagesWithUrls = await Promise.all(
-      paginatedImages.map(async (img) => {
-        const url = await storage.getLiveImageUrl(img.hash);
-        return { ...img, url: url || img.url };
-      })
-    );
+    // Use proxy URLs so images work from any origin (ngrok, etc.)
+    const imagesWithUrls = paginatedImages.map((img) => ({
+      ...img,
+      url: `/api/v1/images/${img.hash}/file`
+    }));
 
     res.json({
       images: imagesWithUrls,
@@ -84,7 +82,7 @@ export function createLiveRoutes(knowledgeGraphManager: KnowledgeGraphManager): 
 
     res.json({
       hash,
-      url,
+      url: `/api/v1/images/${hash}/file`,
       metadata
     });
   }));

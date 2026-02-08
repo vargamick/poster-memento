@@ -1,40 +1,32 @@
 /**
  * Image Routes
  *
- * Endpoints for retrieving presigned image URLs from S3 or MinIO storage.
+ * Endpoints for retrieving image URLs and proxying image content from S3 or MinIO storage.
+ * The proxy endpoints allow images to be served through the API server, making them
+ * accessible when the app is accessed via ngrok or other reverse proxies.
  */
 
 import { Router } from 'express';
+import { Readable } from 'stream';
 import { asyncHandler, ValidationError, NotFoundError } from '../middleware/errorHandler.js';
 import type { IImageStorageService } from '../../image-processor/imageStorageFactory.js';
 
 /**
- * Rewrite internal MinIO URLs to use the public endpoint
- * This is only necessary when using MinIO in Docker where the internal endpoint
- * (e.g., minio:9000) is not accessible from the browser.
- * S3 URLs are already correct and don't need rewriting.
+ * Convert a public/external MinIO URL to an internal URL for server-side fetching.
+ * Maps MINIO_PUBLIC_URL (e.g., http://localhost:9010) to MINIO_ENDPOINT (e.g., minio:9000).
+ * S3 URLs are returned unchanged.
  */
-function rewriteMinioUrl(url: string): string {
-  // S3 URLs don't need rewriting
+function rewriteToInternal(url: string): string {
   if (url.includes('.amazonaws.com') || url.includes('.s3.')) {
     return url;
   }
 
   const publicUrl = process.env.MINIO_PUBLIC_URL;
-  if (!publicUrl) {
-    return url;
-  }
+  const endpoint = process.env.MINIO_ENDPOINT;
+  if (!publicUrl || !endpoint) return url;
 
-  // Parse the internal URL and replace the host:port with the public URL
-  try {
-    const urlObj = new URL(url);
-    const publicUrlObj = new URL(publicUrl);
-    urlObj.protocol = publicUrlObj.protocol;
-    urlObj.host = publicUrlObj.host;
-    return urlObj.toString();
-  } catch {
-    return url;
-  }
+  const internalBase = endpoint.startsWith('http') ? endpoint : `http://${endpoint}`;
+  return url.replace(publicUrl, internalBase);
 }
 
 /**
@@ -59,7 +51,46 @@ export function createImageRoutes(imageStorage: IImageStorageService): Router {
   }));
 
   /**
-   * GET /images/:hash - Get presigned URL for a single image by hash
+   * GET /images/:hash/file - Proxy image content from storage
+   * Streams the image through the API server so it works from any origin (ngrok, etc.)
+   * Must be defined before /:hash to avoid route conflicts.
+   */
+  router.get('/:hash/file', asyncHandler(async (req, res) => {
+    const { hash } = req.params;
+
+    if (!hash || hash.length < 8) {
+      throw new ValidationError('Valid image hash is required');
+    }
+
+    const presignedUrl = await imageStorage.getPresignedUrlByHash(hash, 3600);
+    if (!presignedUrl) {
+      throw new NotFoundError(`Image not found for hash: ${hash}`);
+    }
+
+    const internalUrl = rewriteToInternal(presignedUrl);
+    const fetchResponse = await fetch(internalUrl);
+
+    if (!fetchResponse.ok) {
+      throw new NotFoundError(`Failed to fetch image: ${fetchResponse.status}`);
+    }
+
+    const contentType = fetchResponse.headers.get('content-type') || 'image/jpeg';
+    const contentLength = fetchResponse.headers.get('content-length');
+
+    res.set('Content-Type', contentType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    if (contentLength) res.set('Content-Length', contentLength);
+
+    if (fetchResponse.body) {
+      const nodeStream = Readable.fromWeb(fetchResponse.body as any);
+      nodeStream.pipe(res);
+    } else {
+      res.end();
+    }
+  }));
+
+  /**
+   * GET /images/:hash - Get proxy URL for a single image by hash
    *
    * @param hash - First 16 characters of the SHA-256 hash of the image
    * @query expiry - Optional expiry time in seconds (default: 3600, max: 86400)
@@ -81,7 +112,7 @@ export function createImageRoutes(imageStorage: IImageStorageService): Router {
     res.json({
       data: {
         hash,
-        url: rewriteMinioUrl(presignedUrl),
+        url: `/api/v1/images/${hash}/file`,
         expiresIn: expiry
       }
     });
@@ -128,7 +159,7 @@ export function createImageRoutes(imageStorage: IImageStorageService): Router {
 
     for (const result of results) {
       if (result.url) {
-        urls[result.hash] = rewriteMinioUrl(result.url);
+        urls[result.hash] = `/api/v1/images/${result.hash}/file`;
       } else if (result.error) {
         errors[result.hash] = result.error;
       }
