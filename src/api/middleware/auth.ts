@@ -6,8 +6,9 @@ import { UnauthorizedError } from './errorHandler.js';
  */
 export function validateApiKey(validApiKeys: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    // Skip validation for health check and API info endpoints
-    if (req.path === '/health' || req.path === '/api') {
+    // Skip validation for health check, API info, and image proxy endpoints
+    // Image proxy endpoints are accessed via <img src> which can't send custom headers
+    if (req.path === '/health' || req.path === '/api' || req.path.endsWith('/file')) {
       return next();
     }
 

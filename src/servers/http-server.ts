@@ -69,6 +69,11 @@ const authenticateApiKey = (
     return;
   }
 
+  // Skip auth for image proxy endpoints (accessed via <img src> which can't send headers)
+  if (req.path.endsWith('/file')) {
+    return next();
+  }
+
   if (!apiKey || apiKey !== expectedKey) {
     res.status(401).json({ error: 'Invalid or missing API key' });
     return;
