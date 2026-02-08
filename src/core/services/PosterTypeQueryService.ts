@@ -314,12 +314,16 @@ export class PosterTypeQueryService {
             .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
             .join(' ');
 
-          artistMap.get(posterName)!.push({
-            artistEntityName,
-            displayName,
-            relationType: record.get('relationType') || '',
-            confidence: record.get('confidence') ?? 0,
-          });
+          const relationType = record.get('relationType') || '';
+          const confidence = record.get('confidence') ?? 0;
+
+          // Deduplicate: keep only the highest-confidence entry per artist per poster
+          const existing = artistMap.get(posterName)!;
+          const dupIndex = existing.findIndex(e => e.artistEntityName === artistEntityName && e.relationType === relationType);
+          if (dupIndex === -1) {
+            existing.push({ artistEntityName, displayName, relationType, confidence });
+          }
+          // Skip duplicates (results are ordered by confidence DESC, so first seen is highest)
         }
       }
 
