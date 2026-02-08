@@ -171,12 +171,16 @@
 
           <section class="processing-section file-browser-section">
             <h3><span class="icon">🖼️</span> Local Files</h3>
+            <div class="filter-controls">
+              <input type="text" id="local-file-filter" placeholder="Filter by filename..." class="filter-input">
+            </div>
             <div class="file-controls">
               <div class="selection-actions">
                 <button type="button" id="select-all-local-btn">Select All</button>
+                <button type="button" id="select-filtered-local-btn">Select Filtered</button>
                 <button type="button" id="deselect-all-local-btn">Clear</button>
               </div>
-              <span class="selection-info">Selected: <strong id="selected-local-count">0</strong></span>
+              <span class="selection-info">Selected: <strong id="selected-local-count">0</strong> <span id="local-filter-stats" class="filter-stats-inline hidden">(showing <strong id="local-filtered-count">0</strong> of <strong id="local-total-count">0</strong>)</span></span>
             </div>
             <div class="file-list" id="local-file-list">
               <div class="file-list-empty">

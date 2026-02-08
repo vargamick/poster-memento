@@ -23,6 +23,7 @@ class ProcessingManager {
     this.localFiles = [];
     this.selectedLocalFiles = new Set();
     this.localDirectoryHandle = null;
+    this.localFilterText = '';
 
     // Processing state
     this.isProcessing = false;
@@ -77,9 +78,14 @@ class ProcessingManager {
       localFolderPath: document.getElementById('local-folder-path'),
       localFileCount: document.getElementById('local-file-count'),
       localFileList: document.getElementById('local-file-list'),
+      localFileFilter: document.getElementById('local-file-filter'),
       selectAllLocalBtn: document.getElementById('select-all-local-btn'),
+      selectFilteredLocalBtn: document.getElementById('select-filtered-local-btn'),
       deselectAllLocalBtn: document.getElementById('deselect-all-local-btn'),
       selectedLocalCount: document.getElementById('selected-local-count'),
+      localFilterStats: document.getElementById('local-filter-stats'),
+      localFilteredCount: document.getElementById('local-filtered-count'),
+      localTotalCount: document.getElementById('local-total-count'),
       uploadToSessionBtn: document.getElementById('upload-to-session-btn'),
       uploadProgress: document.getElementById('upload-progress'),
       uploadProgressFill: document.getElementById('upload-progress-fill'),
@@ -173,7 +179,13 @@ class ProcessingManager {
 
     // Step 2: Upload
     this.elements.browseBtn?.addEventListener('click', () => this.browseLocalFolder());
+    this.elements.localFileFilter?.addEventListener('input', (e) => {
+      this.localFilterText = e.target.value.toLowerCase().trim();
+      this.renderLocalFileList();
+      this.updateLocalFilterStats();
+    });
     this.elements.selectAllLocalBtn?.addEventListener('click', () => this.selectAllLocal());
+    this.elements.selectFilteredLocalBtn?.addEventListener('click', () => this.selectFilteredLocal());
     this.elements.deselectAllLocalBtn?.addEventListener('click', () => this.deselectAllLocal());
     this.elements.localFileList?.addEventListener('click', (e) => this.handleLocalFileClick(e));
     this.elements.uploadToSessionBtn?.addEventListener('click', () => this.uploadToSession());
@@ -600,6 +612,8 @@ class ProcessingManager {
 
     this.localFiles = files;
     this.selectedLocalFiles.clear();
+    this.localFilterText = '';
+    if (this.elements.localFileFilter) this.elements.localFileFilter.value = '';
 
     if (this.elements.localFileCount) {
       this.elements.localFileCount.textContent = files.length;
@@ -607,6 +621,7 @@ class ProcessingManager {
 
     this.renderLocalFileList();
     this.updateLocalSelection();
+    this.updateLocalFilterStats();
     this.addLogEntry(`Found ${files.length} images in local folder`, 'info');
   }
 
@@ -625,7 +640,20 @@ class ProcessingManager {
       return;
     }
 
-    this.elements.localFileList.innerHTML = this.localFiles.map(file => `
+    let files = this.localFiles;
+    if (this.localFilterText) {
+      files = files.filter(f => f.name.toLowerCase().includes(this.localFilterText));
+    }
+
+    if (files.length === 0) {
+      this.elements.localFileList.innerHTML = `
+        <div class="file-list-empty">
+          <p>No files match filter</p>
+        </div>`;
+      return;
+    }
+
+    this.elements.localFileList.innerHTML = files.map(file => `
       <div class="file-item ${this.selectedLocalFiles.has(file.name) ? 'selected' : ''}" data-name="${this.escapeHtml(file.name)}">
         <input type="checkbox" ${this.selectedLocalFiles.has(file.name) ? 'checked' : ''}>
         <div class="file-info">
@@ -666,6 +694,28 @@ class ProcessingManager {
     this.selectedLocalFiles.clear();
     this.renderLocalFileList();
     this.updateLocalSelection();
+  }
+
+  selectFilteredLocal() {
+    let files = this.localFiles;
+    if (this.localFilterText) {
+      files = files.filter(f => f.name.toLowerCase().includes(this.localFilterText));
+    }
+    files.forEach(f => this.selectedLocalFiles.add(f.name));
+    this.renderLocalFileList();
+    this.updateLocalSelection();
+  }
+
+  updateLocalFilterStats() {
+    if (!this.elements.localFilterStats) return;
+    if (this.localFilterText && this.localFiles.length > 0) {
+      const filtered = this.localFiles.filter(f => f.name.toLowerCase().includes(this.localFilterText));
+      this.elements.localFilterStats.classList.remove('hidden');
+      if (this.elements.localFilteredCount) this.elements.localFilteredCount.textContent = filtered.length;
+      if (this.elements.localTotalCount) this.elements.localTotalCount.textContent = this.localFiles.length;
+    } else {
+      this.elements.localFilterStats.classList.add('hidden');
+    }
   }
 
   updateLocalSelection() {

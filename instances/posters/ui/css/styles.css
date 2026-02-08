@@ -2199,6 +2199,20 @@ footer {
   font-weight: 700;
 }
 
+.filter-controls {
+  margin-bottom: 12px;
+}
+
+.filter-stats-inline {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.filter-stats-inline strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 /* ============================================================================
    Processing Mode Selector
    ============================================================================ */
