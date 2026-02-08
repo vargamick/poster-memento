@@ -152,6 +152,54 @@
         "timeout": 60000,
         "maxRetries": 3
       }
+    },
+    "gcv-gemini-flash": {
+      "provider": "google-cloud-vision",
+      "model": "cloud-vision",
+      "description": "Google Cloud Vision OCR + Gemini 2.0 Flash structuring",
+      "parameters": "cloud",
+      "options": {
+        "structuringModel": "gemini-2.0-flash",
+        "features": ["DOCUMENT_TEXT_DETECTION", "TEXT_DETECTION", "LABEL_DETECTION"],
+        "timeout": 90000,
+        "maxRetries": 3
+      }
+    },
+    "gcv-gemini-pro": {
+      "provider": "google-cloud-vision",
+      "model": "cloud-vision",
+      "description": "Google Cloud Vision OCR + Gemini 1.5 Pro structuring",
+      "parameters": "cloud",
+      "options": {
+        "structuringModel": "gemini-1.5-pro",
+        "features": ["DOCUMENT_TEXT_DETECTION", "TEXT_DETECTION", "LABEL_DETECTION"],
+        "timeout": 120000,
+        "maxRetries": 3
+      }
+    },
+    "gcv-claude-opus": {
+      "provider": "google-cloud-vision",
+      "model": "cloud-vision",
+      "description": "Google Cloud Vision OCR + Claude Opus 4.5 structuring",
+      "parameters": "cloud",
+      "options": {
+        "structuringModel": "claude-opus-4.5",
+        "features": ["DOCUMENT_TEXT_DETECTION", "TEXT_DETECTION", "LABEL_DETECTION"],
+        "timeout": 120000,
+        "maxRetries": 3
+      }
+    },
+    "gcv-claude-sonnet": {
+      "provider": "google-cloud-vision",
+      "model": "cloud-vision",
+      "description": "Google Cloud Vision OCR + Claude Sonnet 4.5 structuring",
+      "parameters": "cloud",
+      "options": {
+        "structuringModel": "claude-sonnet-4.5",
+        "features": ["DOCUMENT_TEXT_DETECTION", "TEXT_DETECTION", "LABEL_DETECTION"],
+        "timeout": 90000,
+        "maxRetries": 3
+      }
     }
   }
 }

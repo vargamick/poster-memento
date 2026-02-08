@@ -346,6 +346,18 @@ export class PosterAPI {
   }
 
   /**
+   * Enrich a single entity using external APIs (preview mode)
+   * @param {string} entityName - Entity name to enrich
+   * @returns {Promise<object>} Enrichment result with suggestions
+   */
+  async enrichSingleEntity(entityName) {
+    return this.request('/api/v1/qa-validation/enrich/entity', {
+      method: 'POST',
+      body: JSON.stringify({ entityName })
+    });
+  }
+
+  /**
    * Check QA external API health
    * @returns {Promise<object>} Health status for each external API
    */

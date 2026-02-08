@@ -638,6 +638,7 @@ export function cleanPosterData(
     state: cleanTextField(entity.state),
     country: cleanTextField(entity.country),
     event_date: normalizedDate,
+    event_dates: entity.event_dates?.map(d => normalizeDate(d)).filter((d): d is string => d != null),
     year,
     decade,
     supporting_acts: validatedSupportingActs.length > 0 ? validatedSupportingActs : undefined,

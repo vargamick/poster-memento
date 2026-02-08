@@ -20,6 +20,7 @@ import {
   VenuePhaseResult,
   VenueMatch,
   EventPhaseResult,
+  ShowInfo,
   AssemblyPhaseResult,
   DEFAULT_ITERATIVE_OPTIONS,
   PosterType,
@@ -451,6 +452,7 @@ export class IterativeProcessor {
         state: venueResult.venue?.state,
         country: venueResult.venue?.country,
         event_date: eventResult.eventDate?.rawValue,
+        event_dates: eventResult.shows?.map(s => s.date.rawValue),
         year: eventResult.year,
         decade: eventResult.decade,
         door_time: eventResult.timeDetails?.doorTime,
@@ -595,7 +597,7 @@ export class IterativeProcessor {
 
         case 'film':
           await this.createFilmEntities(
-            posterEntity, artistResult, entities, relationships
+            posterEntity, artistResult, eventResult, entities, relationships
           );
           break;
 
@@ -730,6 +732,54 @@ export class IterativeProcessor {
         relationships.push({ type: 'CREATED_BY', from: albumId, to: featArtistId });
       }
     }
+
+    // Create Show entity for temporal searchability (year-based)
+    const year = eventResult?.year ?? posterEntity.year;
+    if (year && headlinerArtistId) {
+      const artistSlug = (artistResult.headliner?.validatedName ?? artistResult.headliner?.extractedName ?? 'unknown')
+        .toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const dateSlug = eventResult?.eventDate?.rawValue
+        ? (eventResult.eventDate.year && eventResult.eventDate.month && eventResult.eventDate.day
+            ? `${eventResult.eventDate.year}-${String(eventResult.eventDate.month).padStart(2, '0')}-${String(eventResult.eventDate.day).padStart(2, '0')}`
+            : String(year))
+        : String(year);
+      const showId = `show_${artistSlug}_none_${dateSlug}`;
+
+      const showObservations: string[] = [
+        `Year: ${year}`,
+        eventResult?.eventDate?.rawValue ? `Release Date: ${eventResult.eventDate.rawValue}` : '',
+        `Artist: ${artistResult.headliner?.validatedName ?? artistResult.headliner?.extractedName}`,
+        `Type: album release`,
+      ].filter(o => o);
+
+      const existingShow = await this.entityService.getEntity(showId);
+      if (!existingShow.success) {
+        await this.entityService.createEntities([{
+          name: showId,
+          entityType: 'Show',
+          observations: showObservations,
+        }]);
+        entities.push({ type: 'Show', name: showId, isNew: true });
+      } else {
+        entities.push({ type: 'Show', name: showId, isNew: false });
+      }
+
+      await this.relationService.createRelations([{
+        from: posterEntity.name,
+        to: showId,
+        relationType: 'ADVERTISES_SHOW',
+      }]);
+      relationships.push({ type: 'ADVERTISES_SHOW', from: posterEntity.name, to: showId });
+
+      const now = Date.now();
+      await this.relationService.createRelations([{
+        from: headlinerArtistId,
+        to: showId,
+        relationType: 'PERFORMS_IN',
+        metadata: { is_headliner: true, billing_order: 1, createdAt: now, updatedAt: now },
+      }]);
+      relationships.push({ type: 'PERFORMS_IN', from: headlinerArtistId, to: showId });
+    }
   }
 
   /**
@@ -827,9 +877,11 @@ export class IterativeProcessor {
     }
 
     // Create supporting act relationships
+    const supportActIds: string[] = [];
     if (artistResult.supportingActs) {
       for (const act of artistResult.supportingActs) {
         const actId = await this.createArtistEntity(act, entities);
+        supportActIds.push(actId);
 
         // PERFORMED_ON relationship (Artist → Poster)
         await this.relationService.createRelations([{
@@ -848,6 +900,13 @@ export class IterativeProcessor {
         relationships.push({ type: 'PERFORMED_AT', from: actId, to: eventId });
       }
     }
+
+    // Create Show entities (one per date)
+    await this.createShowEntities(
+      posterEntity, artistResult, venueResult, eventResult,
+      headlinerArtistId, supportActIds, venueId, eventId,
+      entities, relationships
+    );
 
     // Create promoter organization if present
     if (eventResult?.promoter) {
@@ -878,19 +937,172 @@ export class IterativeProcessor {
   }
 
   /**
+   * Create Show entities for individual performances.
+   * A Show is created for each date found on the poster, or a single
+   * year-only Show if only a year is available.
+   */
+  private async createShowEntities(
+    posterEntity: PosterEntity,
+    artistResult: ArtistPhaseResult,
+    venueResult: VenuePhaseResult,
+    eventResult: EventPhaseResult | undefined,
+    headlinerArtistId: string | undefined,
+    supportActIds: string[],
+    venueId: string | undefined,
+    eventId: string | undefined,
+    entities: AssemblyPhaseResult['entitiesCreated'],
+    relationships: AssemblyPhaseResult['relationshipsCreated']
+  ): Promise<void> {
+    if (!this.entityService || !this.relationService) return;
+
+    // Build list of shows to create
+    const showsToCreate: ShowInfo[] = [];
+
+    if (eventResult?.shows && eventResult.shows.length > 0) {
+      showsToCreate.push(...eventResult.shows);
+    } else if (eventResult?.eventDate) {
+      // Single date fallback
+      showsToCreate.push({
+        date: eventResult.eventDate,
+        doorTime: eventResult.timeDetails?.doorTime,
+        showTime: eventResult.timeDetails?.showTime,
+        ticketPrice: eventResult.ticketPrice,
+        ageRestriction: eventResult.ageRestriction,
+        showNumber: 1,
+      });
+    } else if (eventResult?.year) {
+      // Year-only fallback
+      showsToCreate.push({
+        date: {
+          rawValue: String(eventResult.year),
+          year: eventResult.year,
+          confidence: 0.6,
+          format: 'year_only',
+        },
+        showNumber: 1,
+      });
+    }
+
+    if (showsToCreate.length === 0) return;
+
+    const artistSlug = (artistResult.headliner?.validatedName ?? artistResult.headliner?.extractedName ?? 'unknown')
+      .toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const venueSlug = (venueResult.venue?.validatedName ?? venueResult.venue?.extractedName ?? 'none')
+      .toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+    for (let i = 0; i < showsToCreate.length; i++) {
+      const show = showsToCreate[i];
+
+      // Build date slug: YYYY-MM-DD for full dates, YYYY for year-only
+      let dateSlug: string;
+      if (show.date.year && show.date.month && show.date.day) {
+        dateSlug = `${show.date.year}-${String(show.date.month).padStart(2, '0')}-${String(show.date.day).padStart(2, '0')}`;
+      } else if (show.date.year) {
+        dateSlug = String(show.date.year);
+      } else {
+        dateSlug = show.date.rawValue.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      }
+
+      const showId = `show_${artistSlug}_${venueSlug}_${dateSlug}`;
+
+      // Build show observations
+      const showObservations: string[] = [
+        `Date: ${show.date.rawValue}`,
+        show.dayOfWeek ? `Day: ${show.dayOfWeek}` : '',
+        show.date.year ? `Year: ${show.date.year}` : '',
+        show.doorTime ? `Door Time: ${show.doorTime}` : '',
+        show.showTime ? `Show Time: ${show.showTime}` : '',
+        show.ticketPrice ? `Ticket Price: ${show.ticketPrice}` : '',
+        show.ageRestriction ? `Age Restriction: ${show.ageRestriction}` : '',
+        showsToCreate.length > 1 ? `Show ${i + 1} of ${showsToCreate.length}` : '',
+        artistResult.headliner ? `Headliner: ${artistResult.headliner.validatedName ?? artistResult.headliner.extractedName}` : '',
+        venueResult.venue ? `Venue: ${venueResult.venue.validatedName ?? venueResult.venue.extractedName}` : '',
+        venueResult.venue?.city ? `City: ${venueResult.venue.city}` : '',
+      ].filter(o => o);
+
+      // Check if show already exists (deterministic naming enables dedup)
+      const existingShow = await this.entityService.getEntity(showId);
+      if (!existingShow.success) {
+        await this.entityService.createEntities([{
+          name: showId,
+          entityType: 'Show',
+          observations: showObservations,
+        }]);
+        entities.push({ type: 'Show', name: showId, isNew: true });
+      } else {
+        entities.push({ type: 'Show', name: showId, isNew: false });
+      }
+
+      // Poster → ADVERTISES_SHOW → Show
+      await this.relationService.createRelations([{
+        from: posterEntity.name,
+        to: showId,
+        relationType: 'ADVERTISES_SHOW',
+      }]);
+      relationships.push({ type: 'ADVERTISES_SHOW', from: posterEntity.name, to: showId });
+
+      // Show → HELD_AT → Venue
+      if (venueId) {
+        await this.relationService.createRelations([{
+          from: showId,
+          to: venueId,
+          relationType: 'HELD_AT',
+        }]);
+        relationships.push({ type: 'HELD_AT', from: showId, to: venueId });
+      }
+
+      // Artist → PERFORMS_IN → Show (headliner)
+      if (headlinerArtistId) {
+        const now = Date.now();
+        await this.relationService.createRelations([{
+          from: headlinerArtistId,
+          to: showId,
+          relationType: 'PERFORMS_IN',
+          metadata: { is_headliner: true, billing_order: 1, createdAt: now, updatedAt: now },
+        }]);
+        relationships.push({ type: 'PERFORMS_IN', from: headlinerArtistId, to: showId });
+      }
+
+      // Supporting acts → PERFORMS_IN → Show
+      for (let j = 0; j < supportActIds.length; j++) {
+        const now = Date.now();
+        await this.relationService.createRelations([{
+          from: supportActIds[j],
+          to: showId,
+          relationType: 'PERFORMS_IN',
+          metadata: { is_headliner: false, billing_order: j + 2, createdAt: now, updatedAt: now },
+        }]);
+        relationships.push({ type: 'PERFORMS_IN', from: supportActIds[j], to: showId });
+      }
+
+      // Show → PART_OF_EVENT → Event
+      if (eventId) {
+        await this.relationService.createRelations([{
+          from: showId,
+          to: eventId,
+          relationType: 'PART_OF_EVENT',
+        }]);
+        relationships.push({ type: 'PART_OF_EVENT', from: showId, to: eventId });
+      }
+    }
+  }
+
+  /**
    * Create Film-specific entities and relationships
    */
   private async createFilmEntities(
     posterEntity: PosterEntity,
     artistResult: ArtistPhaseResult,
+    eventResult: EventPhaseResult | undefined,
     entities: AssemblyPhaseResult['entitiesCreated'],
     relationships: AssemblyPhaseResult['relationshipsCreated']
   ): Promise<void> {
     if (!this.entityService || !this.relationService) return;
 
     // Create Director entity and DIRECTED_BY relationship
+    let directorId: string | undefined;
     if (artistResult.director) {
-      const directorId = await this.createArtistEntity(artistResult.director, entities, 'director');
+      directorId = await this.createArtistEntity(artistResult.director, entities, 'director');
 
       await this.relationService.createRelations([{
         from: posterEntity.name,
@@ -929,6 +1141,57 @@ export class IterativeProcessor {
         metadata: { billing_order: 1, createdAt: now, updatedAt: now },
       }]);
       relationships.push({ type: 'STARS', from: posterEntity.name, to: starId });
+    }
+
+    // Create Show entity for temporal searchability (year-based)
+    const year = eventResult?.year ?? posterEntity.year;
+    const primaryArtistName = artistResult.director?.validatedName ?? artistResult.director?.extractedName
+      ?? artistResult.headliner?.validatedName ?? artistResult.headliner?.extractedName;
+    const primaryArtistId = directorId
+      ?? (artistResult.headliner ? await this.createArtistEntity(artistResult.headliner, entities) : undefined);
+
+    if (year && primaryArtistName) {
+      const artistSlug = primaryArtistName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const dateSlug = String(year);
+      const showId = `show_${artistSlug}_none_${dateSlug}`;
+
+      const showObservations: string[] = [
+        `Year: ${year}`,
+        eventResult?.eventDate?.rawValue ? `Release Date: ${eventResult.eventDate.rawValue}` : '',
+        `Director: ${primaryArtistName}`,
+        `Type: film release`,
+        posterEntity.title ? `Film: ${posterEntity.title}` : '',
+      ].filter(o => o);
+
+      const existingShow = await this.entityService.getEntity(showId);
+      if (!existingShow.success) {
+        await this.entityService.createEntities([{
+          name: showId,
+          entityType: 'Show',
+          observations: showObservations,
+        }]);
+        entities.push({ type: 'Show', name: showId, isNew: true });
+      } else {
+        entities.push({ type: 'Show', name: showId, isNew: false });
+      }
+
+      await this.relationService.createRelations([{
+        from: posterEntity.name,
+        to: showId,
+        relationType: 'ADVERTISES_SHOW',
+      }]);
+      relationships.push({ type: 'ADVERTISES_SHOW', from: posterEntity.name, to: showId });
+
+      if (primaryArtistId) {
+        const now = Date.now();
+        await this.relationService.createRelations([{
+          from: primaryArtistId,
+          to: showId,
+          relationType: 'PERFORMS_IN',
+          metadata: { is_headliner: true, billing_order: 1, createdAt: now, updatedAt: now },
+        }]);
+        relationships.push({ type: 'PERFORMS_IN', from: primaryArtistId, to: showId });
+      }
     }
   }
 
@@ -1136,7 +1399,14 @@ export class IterativeProcessor {
     }
 
     // Event observations
-    if (eventResult.eventDate) {
+    if (eventResult.shows && eventResult.shows.length > 1) {
+      observations.push(`Number of shows: ${eventResult.shows.length}`);
+      for (let i = 0; i < eventResult.shows.length; i++) {
+        const show = eventResult.shows[i];
+        const dayStr = show.dayOfWeek ? ` (${show.dayOfWeek})` : '';
+        observations.push(`Show ${i + 1}: ${show.date.rawValue}${dayStr}`);
+      }
+    } else if (eventResult.eventDate) {
       observations.push(`Event date: ${eventResult.eventDate.rawValue}`);
     }
     if (eventResult.year) {

@@ -53,7 +53,7 @@ export interface VisionModelProvider {
 }
 
 export interface VisionModelConfig {
-  provider: 'ollama' | 'vllm' | 'transformers' | 'openai' | 'anthropic' | 'google';
+  provider: 'ollama' | 'vllm' | 'transformers' | 'openai' | 'anthropic' | 'google' | 'google-cloud-vision';
   baseUrl?: string;  // Optional for cloud providers (they have defaults)
   model: string;
   description?: string;
@@ -64,6 +64,8 @@ export interface VisionModelConfig {
     maxTokens?: number;
     timeout?: number;       // Request timeout in ms
     maxRetries?: number;    // Number of retry attempts
+    structuringModel?: string;  // Model key for hybrid providers (e.g., "gemini-2.0-flash")
+    features?: string[];        // Cloud Vision features (e.g., ["DOCUMENT_TEXT_DETECTION"])
   };
 }
 
@@ -108,6 +110,8 @@ export interface PosterEntity {
   state?: string;
   country?: string;
   event_date?: string;
+  /** All show dates when poster advertises multiple performances */
+  event_dates?: string[];
   /**
    * Vision model commentary and uncertainty notes.
    * Stores explanatory text that shouldn't be in data fields.

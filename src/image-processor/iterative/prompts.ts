@@ -468,11 +468,15 @@ export const EVENT_PROMPTS: Record<PosterType, string> = {
 IMPORTANT OUTPUT RULES:
 - Dates MUST be in DD/MM/YYYY format (e.g., 15/03/2024)
 - If year unknown, use DD/MM only (e.g., 15/03)
+- If ONLY a year is visible, still include it in the "year" field
 - Leave fields empty if not visible - do NOT write "not specified" or similar
 - Times should be in HH:MM format (e.g., 19:00, 20:30)
+- CRITICAL: If the poster shows MULTIPLE dates/shows, list EACH as a separate entry in the "shows" array
+- If only ONE date is visible, still use the "shows" array with a single entry
 
 Look for:
-- DATE: Event date (convert to DD/MM/YYYY)
+- DATES: ALL event dates (posters often advertise multiple nights, e.g., "Friday 4th & Saturday 5th May")
+- DAY OF WEEK: Friday, Saturday, etc. (often printed alongside dates)
 - YEAR: 4-digit year
 - DOOR TIME: When doors open
 - SHOW TIME: When show starts
@@ -482,7 +486,16 @@ Look for:
 
 Return JSON:
 {
-  "event_date": "DD/MM/YYYY",
+  "shows": [
+    {
+      "event_date": "DD/MM/YYYY",
+      "day_of_week": "Friday"
+    },
+    {
+      "event_date": "DD/MM/YYYY",
+      "day_of_week": "Saturday"
+    }
+  ],
   "year": 2024,
   "door_time": "19:00",
   "show_time": "20:00",
@@ -510,9 +523,12 @@ Return JSON:
 
   album: `Extract release details from this ALBUM poster.
 
+IMPORTANT: Always extract the year if visible, even if no specific release date is shown.
+Dates MUST be in DD/MM/YYYY format. Leave fields empty if not visible.
+
 Look for:
 - RELEASE DATE: Album/single release date
-- YEAR: Release year
+- YEAR: Release year (ALWAYS include if visible anywhere on the poster)
 - PRE-ORDER DATE: If different from release
 - STREAMING PLATFORMS: Where available
 
@@ -526,9 +542,12 @@ Return JSON:
 
   film: `Extract release details from this FILM poster.
 
+IMPORTANT: Always extract the year if visible, even if no specific release date is shown.
+Dates MUST be in DD/MM/YYYY format. Leave fields empty if not visible.
+
 Look for:
-- RELEASE DATE: Theatrical release
-- YEAR: Release year
+- RELEASE DATE: Theatrical release date
+- YEAR: Release year (ALWAYS include if visible anywhere on the poster)
 - RATING: MPAA rating (G, PG, PG-13, R, NC-17)
 - RUNTIME: If shown
 
@@ -542,33 +561,58 @@ Return JSON:
 
   theater: `Extract show details from this THEATER poster.
 
+IMPORTANT: If the poster shows MULTIPLE specific performance dates, list EACH in the "shows" array.
+If only run dates (opening/closing) are shown, include those instead.
+If ONLY a year is visible, include it in the "year" field.
+Dates MUST be in DD/MM/YYYY format. Leave fields empty if not visible.
+
 Look for:
-- RUN DATES: "Now through May 15" or specific dates
+- SPECIFIC DATES: Individual performance dates if listed
+- RUN DATES: "Now through May 15" or opening/closing dates
 - SHOWTIMES: Performance times
 - TICKET PRICES: Price ranges
 - PREVIEWS: Preview dates if applicable
 
 Return JSON:
 {
+  "shows": [
+    {
+      "event_date": "DD/MM/YYYY",
+      "day_of_week": "Saturday"
+    }
+  ],
   "opening_date": "opens date",
   "closing_date": "closes date",
-  "showtimes": ["8pm Tue-Sat", "2pm Sun"],
+  "year": 2024,
+  "show_time": "20:00",
   "ticket_prices": "$50-$150"
 }`,
 
   comedy: `Extract show details from this COMEDY poster.
 
+IMPORTANT: If the poster shows MULTIPLE dates/shows, list EACH as a separate entry in the "shows" array.
+If only ONE date, still use the "shows" array with a single entry.
+If ONLY a year is visible, include it in the "year" field.
+Dates MUST be in DD/MM/YYYY format. Leave fields empty if not visible.
+
 Look for:
-- DATE: Show date
+- DATES: All show dates (comedy posters often list multiple nights)
+- DAY OF WEEK: If printed alongside dates
 - SHOWTIMES: Multiple shows ("7pm & 9:30pm")
 - TICKET PRICE: Cost
 - AGE RESTRICTION: Usually 18+ or 21+
 
 Return JSON:
 {
-  "event_date": "show date",
+  "shows": [
+    {
+      "event_date": "DD/MM/YYYY",
+      "day_of_week": "Friday"
+    }
+  ],
   "year": 2024,
-  "showtimes": ["7:00 PM", "9:30 PM"],
+  "door_time": "19:00",
+  "show_time": "20:00",
   "ticket_price": "$25",
   "age_restriction": "21+"
 }`,
@@ -603,14 +647,23 @@ Return JSON:
 
   hybrid: `Extract event details from this HYBRID poster.
 
+IMPORTANT: If the poster shows MULTIPLE show dates, list EACH in the "shows" array.
+If ONLY a year is visible, include it in the "year" field.
+Dates MUST be in DD/MM/YYYY format. Leave fields empty if not visible.
+
 Look for both:
 RELEASE DATE: Album release date
-SHOW DATE: Release show date and time
+SHOW DATES: Release show dates and times
 
 Return JSON:
 {
   "release_date": "album release date",
-  "event_date": "release show date",
+  "shows": [
+    {
+      "event_date": "DD/MM/YYYY",
+      "day_of_week": "Friday"
+    }
+  ],
   "year": 2024,
   "door_time": "doors",
   "show_time": "show start",

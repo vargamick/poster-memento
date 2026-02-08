@@ -9,6 +9,7 @@ import { TransformersVisionProvider } from './providers/TransformersVisionProvid
 import { OpenAIVisionProvider } from './providers/OpenAIVisionProvider.js';
 import { AnthropicVisionProvider } from './providers/AnthropicVisionProvider.js';
 import { GoogleVisionProvider } from './providers/GoogleVisionProvider.js';
+import { GoogleCloudVisionProvider } from './providers/GoogleCloudVisionProvider.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -40,6 +41,9 @@ export class VisionModelFactory {
     if (config.provider === 'google') {
       effectiveConfig.apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || config.apiKey;
     }
+    if (config.provider === 'google-cloud-vision') {
+      effectiveConfig.apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY || process.env.GOOGLE_API_KEY || config.apiKey;
+    }
 
     switch (effectiveConfig.provider) {
       case 'ollama':
@@ -54,6 +58,8 @@ export class VisionModelFactory {
         return new AnthropicVisionProvider(effectiveConfig);
       case 'google':
         return new GoogleVisionProvider(effectiveConfig);
+      case 'google-cloud-vision':
+        return new GoogleCloudVisionProvider(effectiveConfig);
       default:
         throw new Error(`Unknown provider: ${(effectiveConfig as any).provider}`);
     }

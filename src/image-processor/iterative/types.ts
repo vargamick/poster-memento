@@ -156,10 +156,28 @@ export interface DateInfo {
   format?: string;
 }
 
+/**
+ * Information about a specific show/performance extracted from a poster.
+ * A poster may advertise multiple shows (e.g., Friday and Saturday nights).
+ */
+export interface ShowInfo {
+  date: DateInfo;
+  dayOfWeek?: string;
+  doorTime?: string;
+  showTime?: string;
+  ticketPrice?: string;
+  ageRestriction?: string;
+  /** Position in multi-show sequence (e.g., 1 of 2) */
+  showNumber?: number;
+}
+
 export interface EventPhaseResult extends BasePhaseResult {
   phase: 'event';
   posterType: PosterType;
+  /** Primary date (first show) - backward compatible */
   eventDate?: DateInfo;
+  /** All individual shows/performances extracted from the poster */
+  shows?: ShowInfo[];
   year?: number;
   decade?: string;
   timeDetails?: {

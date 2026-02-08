@@ -21,6 +21,7 @@ import {
   ValidatorResult,
   ValidatorName,
   ValidationContext,
+  ValidationSource,
   DEFAULT_QA_CONFIG,
   EntityTypeSummary,
 } from './types.js';
@@ -40,6 +41,9 @@ import {
   identifyTopIssues,
   generateRecommendations,
 } from './utils/confidenceScoring.js';
+import { EnrichmentPhase } from '../image-processor/iterative/phases/EnrichmentPhase.js';
+import { PhaseManager } from '../image-processor/iterative/PhaseManager.js';
+import type { ArtistPhaseResult, ArtistMatch, ProcessingContext } from '../image-processor/iterative/types.js';
 
 /**
  * Configuration for the QA Validation Service
@@ -79,10 +83,14 @@ export class QAValidationService {
   private jobs: Map<string, QAJobStatus>;
   private reports: Map<string, QAReport>;
   private runningJobs: Set<string>;
+  private tmdbApiKey?: string;
+  private discogsToken?: string;
 
   constructor(dependencies: QAServiceDependencies) {
     this.entityService = dependencies.entityService;
     this.relationService = dependencies.relationService ?? null;
+    this.tmdbApiKey = dependencies.tmdbApiKey;
+    this.discogsToken = dependencies.discogsToken;
     this.jobs = new Map();
     this.reports = new Map();
     this.runningJobs = new Set();
@@ -210,6 +218,117 @@ export class QAValidationService {
 
     const entity = entityResult.data as PosterEntity;
     return this.validateEntity(entity, DEFAULT_QA_CONFIG);
+  }
+
+  /**
+   * Enrich a single entity using external APIs (preview mode)
+   * Returns enrichment suggestions in the same QAValidationResult format
+   * so the frontend can use the same accept/reject UI.
+   */
+  async enrichSingleEntity(entityName: string): Promise<QAValidationResult | null> {
+    const entityResult = await this.entityService.getEntity(entityName);
+    if (!entityResult.success || !entityResult.data) {
+      return null;
+    }
+
+    const startTime = Date.now();
+    const rawEntity = entityResult.data as PosterEntity;
+    const entity = this.enrichEntityFromObservations(rawEntity);
+
+    // Create EnrichmentPhase with a minimal PhaseManager (not used during execute)
+    const phaseManager = new PhaseManager();
+    const enrichmentPhase = new EnrichmentPhase(
+      phaseManager,
+      this.tmdbApiKey,
+      this.discogsToken,
+    );
+
+    // Build a minimal ArtistPhaseResult from existing entity fields
+    const buildArtistMatch = (name: string): ArtistMatch => ({
+      extractedName: name,
+      confidence: 1.0,
+      source: 'internal' as ValidationSource,
+    });
+
+    const artistResult: ArtistPhaseResult = {
+      posterId: entityName,
+      imagePath: '',
+      phase: 'artist',
+      status: 'completed',
+      confidence: 1.0,
+      processingTimeMs: 0,
+      posterType: (entity.poster_type || 'unknown') as ArtistPhaseResult['posterType'],
+      headliner: entity.headliner ? buildArtistMatch(entity.headliner) : undefined,
+      supportingActs: (entity.supporting_acts || []).map(buildArtistMatch),
+      readyForPhase3: true,
+    };
+
+    // Build a minimal ProcessingContext (not used by enrichment methods internally)
+    const context: ProcessingContext = {
+      sessionId: `enrich_${Date.now()}`,
+      imagePath: '',
+      posterId: entityName,
+      startedAt: new Date(),
+      currentPhase: 'enrichment',
+      phaseResults: new Map(),
+      validationResults: [],
+      suggestions: [],
+    };
+
+    try {
+      const enrichResult = await enrichmentPhase.execute(entity, artistResult, context);
+
+      // Transform EnrichmentPhaseResult into QAValidationResult format
+      const suggestions: QASuggestion[] = [];
+      for (const field of enrichResult.enrichedFields) {
+        const original = enrichResult.originalValues[field];
+        const enrichedValue = (enrichResult.enrichedEntity as Record<string, unknown>)[field];
+        if (enrichedValue !== undefined && enrichedValue !== original) {
+          const sourceInfo = enrichResult.sources[0];
+          suggestions.push({
+            field,
+            currentValue: original != null ? String(original) : undefined,
+            suggestedValue: String(enrichedValue),
+            reason: `Enriched from ${enrichResult.sources.map(s => s.source).join(', ')}`,
+            confidence: sourceInfo?.matchConfidence ?? 0.8,
+            source: (sourceInfo?.source as ValidationSource) ?? 'internal',
+            externalId: sourceInfo?.externalId,
+          });
+        }
+      }
+
+      const externalMatches = enrichResult.sources.map(s => ({
+        source: s.source as ValidationSource,
+        externalId: s.externalId,
+        name: entity.title || entity.headliner || entityName,
+        matchScore: s.matchConfidence,
+        url: '',
+      }));
+
+      return {
+        entityId: entityName,
+        entityType: 'Poster',
+        overallScore: Math.round(enrichResult.confidence * 100),
+        status: suggestions.length > 0 ? 'warning' : 'validated',
+        validatedAt: new Date().toISOString(),
+        validatorResults: [],
+        suggestions,
+        externalMatches,
+        processingTimeMs: Date.now() - startTime,
+      };
+    } catch (error) {
+      return {
+        entityId: entityName,
+        entityType: 'Poster',
+        overallScore: 0,
+        status: 'unverified',
+        validatedAt: new Date().toISOString(),
+        validatorResults: [],
+        suggestions: [],
+        externalMatches: [],
+        processingTimeMs: Date.now() - startTime,
+      };
+    }
   }
 
   /**

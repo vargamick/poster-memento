@@ -68,6 +68,15 @@
       "optional_fields": ["display_name", "org_type", "website"]
     },
     {
+      "name": "Show",
+      "description": "A specific performance or appearance at a venue on a specific date",
+      "required_fields": ["name", "entityType"],
+      "optional_fields": [
+        "date", "day_of_week", "year", "door_time", "show_time",
+        "ticket_price", "age_restriction", "show_number"
+      ]
+    },
+    {
       "name": "PosterType",
       "description": "Classification category for poster content (concert, release, festival, etc.)",
       "required_fields": ["name", "entityType", "type_key"],
@@ -144,8 +153,8 @@
     },
     {
       "name": "HELD_AT",
-      "description": "Event was held at this venue",
-      "from_entity_types": ["Event"],
+      "description": "Event or Show was held at this venue",
+      "from_entity_types": ["Event", "Show"],
       "to_entity_types": ["Venue"],
       "cardinality": "many-to-one"
     },
@@ -187,6 +196,31 @@
         "billing_order": "number",
         "role": "string"
       }
+    },
+    {
+      "name": "ADVERTISES_SHOW",
+      "description": "Poster advertises this specific show/performance",
+      "from_entity_types": ["Poster"],
+      "to_entity_types": ["Show"],
+      "cardinality": "one-to-many"
+    },
+    {
+      "name": "PERFORMS_IN",
+      "description": "Artist performs in this specific show",
+      "from_entity_types": ["Artist"],
+      "to_entity_types": ["Show"],
+      "cardinality": "many-to-many",
+      "metadata_schema": {
+        "billing_order": "number",
+        "is_headliner": "boolean"
+      }
+    },
+    {
+      "name": "PART_OF_EVENT",
+      "description": "Show is part of a larger event or tour",
+      "from_entity_types": ["Show"],
+      "to_entity_types": ["Event"],
+      "cardinality": "many-to-one"
     },
     {
       "name": "HAS_TYPE",

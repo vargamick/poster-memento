@@ -9,6 +9,7 @@ import { BasePhase, PhaseInput } from './BasePhase.js';
 import {
   EventPhaseResult,
   DateInfo,
+  ShowInfo,
   PosterType,
   ArtistPhaseResult,
   VenuePhaseResult,
@@ -92,25 +93,30 @@ export class EventPhase extends BasePhase<EventPhaseResult> {
       // Step 3: Parse the response
       const parsed = this.parseJsonResponse(extraction.extracted_text);
 
-      // Step 4: Extract and parse date information
-      const dateInfo = this.extractDateInfo(parsed, posterType);
+      // Step 4: Extract shows (multi-date aware) with fallback to single date
+      const sharedYear = this.extractYear(parsed.year);
+      const shows = this.extractShows(parsed, posterType, sharedYear);
 
-      // Step 5: Extract time and additional details
+      // Primary date is the first show's date (backward compatible)
+      const dateInfo = shows.length > 0 ? shows[0].date : this.extractDateInfo(parsed, posterType);
+
+      // Step 5: Extract shared time and additional details
       const timeDetails = this.extractTimeDetails(parsed);
       const ticketPrice = this.normalizeString(parsed.ticket_price);
       const ageRestriction = this.normalizeString(parsed.age_restriction);
       const promoter = this.normalizeString(parsed.promoter);
 
       // Step 6: Validate temporal plausibility
+      const primaryYear = dateInfo?.year ?? sharedYear;
       let artistActiveValidation: { valid: boolean; message?: string } | undefined;
       let venueExistsValidation: { valid: boolean; message?: string } | undefined;
 
-      if (input.options.validateEvents && dateInfo?.year) {
+      if (input.options.validateEvents && primaryYear) {
         // Validate artist was active during this period
         if (artistResult?.headliner) {
           artistActiveValidation = await this.validateArtistActive(
             artistResult.headliner.validatedName ?? artistResult.headliner.extractedName,
-            dateInfo.year
+            primaryYear
           );
         }
 
@@ -118,14 +124,14 @@ export class EventPhase extends BasePhase<EventPhaseResult> {
         if (venueResult?.venue) {
           venueExistsValidation = await this.validateVenueExists(
             venueResult.venue.validatedName ?? venueResult.venue.extractedName,
-            dateInfo.year
+            primaryYear
           );
         }
       }
 
       // Step 7: Calculate decade
-      const decade = dateInfo?.year
-        ? `${Math.floor(dateInfo.year / 10) * 10}s`
+      const decade = primaryYear
+        ? `${Math.floor(primaryYear / 10) * 10}s`
         : undefined;
 
       // Step 8: Calculate confidence
@@ -150,7 +156,8 @@ export class EventPhase extends BasePhase<EventPhaseResult> {
         processingTimeMs: Date.now() - startTime,
         posterType,
         eventDate: dateInfo,
-        year: dateInfo?.year,
+        shows: shows.length > 0 ? shows : undefined,
+        year: primaryYear,
         decade,
         timeDetails: timeDetails.doorTime || timeDetails.showTime ? timeDetails : undefined,
         ticketPrice,
@@ -165,7 +172,8 @@ export class EventPhase extends BasePhase<EventPhaseResult> {
       // Store result
       this.phaseManager.storePhaseResult(input.context.sessionId, result);
 
-      this.log('info', `Event extraction complete: ${dateInfo?.rawValue ?? 'no date'} (${Math.round(confidence * 100)}%)`);
+      const showCount = shows.length;
+      this.log('info', `Event extraction complete: ${showCount} show(s), ${dateInfo?.rawValue ?? 'no date'} (${Math.round(confidence * 100)}%)`);
 
       return result;
     } catch (error) {
@@ -235,6 +243,85 @@ export class EventPhase extends BasePhase<EventPhaseResult> {
     }
 
     return undefined;
+  }
+
+  /**
+   * Extract multiple shows from the vision model response.
+   * Falls back to single-date extraction if no "shows" array is present.
+   * Creates a show even for year-only data.
+   */
+  private extractShows(
+    parsed: Record<string, unknown>,
+    posterType: PosterType,
+    sharedYear?: number
+  ): ShowInfo[] {
+    const shows: ShowInfo[] = [];
+
+    // Try new array format first (from updated prompts)
+    if (Array.isArray(parsed.shows)) {
+      for (let i = 0; i < (parsed.shows as unknown[]).length; i++) {
+        const showData = (parsed.shows as Record<string, unknown>[])[i];
+        if (!showData) continue;
+
+        const rawDate = this.normalizeString(showData.event_date);
+        if (rawDate) {
+          const dateInfo = this.parseDate(rawDate);
+          if (dateInfo) {
+            // Apply shared year if the individual date doesn't have one
+            if (!dateInfo.year && sharedYear) {
+              dateInfo.year = sharedYear;
+            }
+            shows.push({
+              date: dateInfo,
+              dayOfWeek: this.normalizeString(showData.day_of_week),
+              doorTime: this.normalizeString(showData.door_time),
+              showTime: this.normalizeString(showData.show_time),
+              ticketPrice: this.normalizeString(showData.ticket_price),
+              ageRestriction: this.normalizeString(showData.age_restriction),
+              showNumber: i + 1,
+            });
+          }
+        }
+      }
+    }
+
+    // If shows array produced results, return them
+    if (shows.length > 0) {
+      return shows;
+    }
+
+    // Fallback: extract single date using the existing method
+    const dateInfo = this.extractDateInfo(parsed, posterType);
+    if (dateInfo) {
+      // Apply shared year if needed
+      if (!dateInfo.year && sharedYear) {
+        dateInfo.year = sharedYear;
+      }
+      shows.push({
+        date: dateInfo,
+        doorTime: this.normalizeString(parsed.door_time || parsed.doors),
+        showTime: this.normalizeString(parsed.show_time || parsed.showtimes),
+        ticketPrice: this.normalizeString(parsed.ticket_price),
+        ageRestriction: this.normalizeString(parsed.age_restriction),
+        showNumber: 1,
+      });
+      return shows;
+    }
+
+    // Last resort: year-only show - still create a Show entity
+    if (sharedYear) {
+      shows.push({
+        date: {
+          rawValue: String(sharedYear),
+          year: sharedYear,
+          confidence: 0.6,
+          format: 'year_only',
+        },
+        showNumber: 1,
+      });
+    }
+
+    return shows;
   }
 
   /**

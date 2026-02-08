@@ -341,7 +341,11 @@ export function createPosterRoutes(knowledgeGraphManager: KnowledgeGraphManager)
       if (entity.venue_name) additionalObservations.push(`Venue: ${entity.venue_name}`);
       if (entity.city) additionalObservations.push(`City: ${entity.city}`);
       if (entity.state) additionalObservations.push(`State: ${entity.state}`);
-      if (entity.event_date) additionalObservations.push(`Event date: ${entity.event_date}`);
+      if (entity.event_dates && entity.event_dates.length > 1) {
+        additionalObservations.push(`Event dates: ${entity.event_dates.join(', ')}`);
+      } else if (entity.event_date) {
+        additionalObservations.push(`Event date: ${entity.event_date}`);
+      }
       if (entity.year) additionalObservations.push(`Year: ${entity.year}`);
       if (entity.decade) additionalObservations.push(`Decade: ${entity.decade}`);
       if (entity.ticket_price) additionalObservations.push(`Ticket price: ${entity.ticket_price}`);
@@ -800,7 +804,11 @@ export function createPosterRoutes(knowledgeGraphManager: KnowledgeGraphManager)
           if (entity.headliner) additionalObs.push(`Headliner: ${entity.headliner}`);
           if (entity.venue_name) additionalObs.push(`Venue: ${entity.venue_name}`);
           if (entity.city) additionalObs.push(`City: ${entity.city}`);
-          if (entity.event_date) additionalObs.push(`Event date: ${entity.event_date}`);
+          if (entity.event_dates && entity.event_dates.length > 1) {
+            additionalObs.push(`Event dates: ${entity.event_dates.join(', ')}`);
+          } else if (entity.event_date) {
+            additionalObs.push(`Event date: ${entity.event_date}`);
+          }
           if (entity.year) additionalObs.push(`Year: ${entity.year}`);
 
           if (additionalObs.length > 0) {

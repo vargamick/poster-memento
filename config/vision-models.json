@@ -155,6 +155,18 @@
         "temperature": 0.1,
         "maxTokens": 4096
       }
+    },
+    "gcv-gemini-flash": {
+      "provider": "google-cloud-vision",
+      "model": "cloud-vision",
+      "description": "Google Cloud Vision OCR + Gemini 3 Flash structuring",
+      "parameters": "cloud",
+      "options": {
+        "structuringModel": "gemini-3-flash",
+        "features": ["DOCUMENT_TEXT_DETECTION", "TEXT_DETECTION", "LABEL_DETECTION"],
+        "timeout": 90000,
+        "maxRetries": 3
+      }
     }
   }
 }

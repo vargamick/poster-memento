@@ -85,7 +85,7 @@ const DEFAULT_CONFIG: ConsensusConfig = {
 const CATEGORICAL_FIELDS = ['poster_type'];
 
 // Fields that are arrays (use union)
-const ARRAY_FIELDS = ['supporting_acts', 'observations', 'dominant_colors'];
+const ARRAY_FIELDS = ['supporting_acts', 'observations', 'dominant_colors', 'event_dates'];
 
 // Fields where we prefer non-null over null
 const PREFER_VALUE_FIELDS = [

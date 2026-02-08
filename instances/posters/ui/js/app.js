@@ -32,6 +32,10 @@ class PosterApp {
     // Stale flag: set when other tabs modify data, triggers refresh on browse tab switch
     this.browseStale = false;
 
+    // Row action state: tracks open result panels and active menus
+    this.openResultPanels = new Map(); // index -> result panel <tr> element
+    this.activeActionMenu = null; // currently open dropdown
+
     // API client
     this.api = createAPI();
 
@@ -778,6 +782,18 @@ class PosterApp {
         }
       });
     });
+
+    // Add click handlers for row action buttons
+    this.elements.posterTbody.querySelectorAll('.row-action-trigger').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const index = parseInt(btn.dataset.posterIndex);
+        this.showRowActionMenu(btn, this.posters[index], index);
+      });
+    });
+
+    // Close any open result panels that no longer correspond to current data
+    this.openResultPanels.clear();
   }
 
   /**
@@ -836,6 +852,9 @@ class PosterApp {
         <td class="venue-cell">${venueHtml}</td>
         <td>${this.escapeHtml(eventDate)}</td>
         <td>${createdAt}</td>
+        <td class="td-row-actions">
+          <button class="row-action-trigger" data-poster-index="${index}" title="Actions">&#8942;</button>
+        </td>
       </tr>
     `;
   }
@@ -1224,6 +1243,579 @@ class PosterApp {
     this.elements.modal.classList.add('hidden');
     this.elements.posterDetail.innerHTML = '';
     document.body.style.overflow = '';
+  }
+
+  // ============================================================================
+  // Row Actions: Validate, Enrich, Check Fields
+  // ============================================================================
+
+  /**
+   * Show the row action dropdown menu
+   */
+  showRowActionMenu(triggerBtn, poster, index) {
+    // Close any existing menu
+    this.closeRowActionMenu();
+
+    const menu = document.createElement('div');
+    menu.className = 'row-action-menu';
+    menu.innerHTML = `
+      <button class="row-menu-item" data-action="check">Check Fields</button>
+      <button class="row-menu-item" data-action="validate">Validate</button>
+      <button class="row-menu-item" data-action="enrich">Enrich</button>
+    `;
+
+    // Position relative to trigger button
+    const td = triggerBtn.closest('.td-row-actions');
+    td.style.position = 'relative';
+    td.appendChild(menu);
+    this.activeActionMenu = menu;
+
+    // Bind menu item clicks
+    menu.querySelectorAll('.row-menu-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = item.dataset.action;
+        this.closeRowActionMenu();
+        if (action === 'check') this.runFieldCheck(poster, index);
+        else if (action === 'validate') this.runRowValidation(poster, index);
+        else if (action === 'enrich') this.runRowEnrichment(poster, index);
+      });
+    });
+
+    // Close on outside click
+    const closeHandler = (e) => {
+      if (!menu.contains(e.target) && e.target !== triggerBtn) {
+        this.closeRowActionMenu();
+        document.removeEventListener('click', closeHandler);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeHandler), 0);
+  }
+
+  /**
+   * Close the row action dropdown menu
+   */
+  closeRowActionMenu() {
+    if (this.activeActionMenu) {
+      this.activeActionMenu.remove();
+      this.activeActionMenu = null;
+    }
+  }
+
+  /**
+   * Run client-side field check (no API call)
+   */
+  runFieldCheck(poster, index) {
+    const fieldsToCheck = [
+      { key: 'title', label: 'Title', getter: (p) => this.getPosterTitle(p) },
+      { key: 'poster_type', label: 'Type', getter: (p) => this.getPosterType(p) },
+      { key: 'headliner', label: 'Headliner/Artist', getter: (p) => this.getFieldFromObservations(p, 'headliner') || p.headliner },
+      { key: 'venue_name', label: 'Venue', getter: (p) => this.getVenueName(p) },
+      { key: 'event_date', label: 'Event Date', getter: (p) => this.getEventDate(p) },
+      { key: 'year', label: 'Year', getter: (p) => this.getFieldFromObservations(p, 'year') || p.year },
+    ];
+
+    const missing = [];
+    const present = [];
+    for (const field of fieldsToCheck) {
+      const val = field.getter(poster);
+      if (!val || val === '-' || val === 'unknown') {
+        missing.push(field);
+      } else {
+        present.push({ ...field, value: val });
+      }
+    }
+
+    this.showFieldCheckResults(poster, index, missing, present);
+  }
+
+  /**
+   * Extract a field from observations array
+   */
+  getFieldFromObservations(poster, fieldName) {
+    const observations = poster.observations || [];
+    for (const obs of observations) {
+      const match = obs.match(new RegExp(`^${fieldName}:\\s*(.+)$`, 'i'));
+      if (match) {
+        const val = match[1].trim();
+        if (val && val.toLowerCase() !== 'not specified' && val.toLowerCase() !== 'not applicable') {
+          return val;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Show field check results in an inline panel
+   */
+  showFieldCheckResults(poster, index, missing, present) {
+    this.closeRowResults(index);
+
+    const completeness = Math.round((present.length / (present.length + missing.length)) * 100);
+    const scoreClass = completeness >= 80 ? 'score-good' : completeness >= 50 ? 'score-warning' : 'score-bad';
+
+    let html = `
+      <td colspan="8" class="td-results-panel">
+        <div class="row-results-panel">
+          <div class="row-results-header">
+            <div>
+              <span class="results-action-label">Field Check</span>
+              <span class="score-badge ${scoreClass}">${completeness}% complete</span>
+            </div>
+            <button class="results-close-btn" title="Close">&times;</button>
+          </div>
+    `;
+
+    if (missing.length === 0) {
+      html += `<p class="results-message results-success">All checked fields have values.</p>`;
+    } else {
+      html += `
+        <div class="missing-fields">
+          <p class="results-label">Missing fields:</p>
+          <div class="missing-field-tags">
+            ${missing.map(f => `<span class="missing-field-tag">${this.escapeHtml(f.label)}</span>`).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    if (present.length > 0) {
+      html += `
+        <div class="present-fields">
+          <p class="results-label">Present fields:</p>
+          <div class="present-field-list">
+            ${present.map(f => `
+              <span class="present-field-item">
+                <strong>${this.escapeHtml(f.label)}:</strong> ${this.escapeHtml(String(f.value))}
+              </span>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    html += `</div></td>`;
+
+    this.insertResultPanel(index, html);
+  }
+
+  /**
+   * Run QA validation on a single poster
+   */
+  async runRowValidation(poster, index) {
+    this.showResultsLoading(index, 'Validating against MusicBrainz, Discogs, TMDB...');
+
+    try {
+      const response = await this.api.validateSingleEntity(poster.name);
+      const result = response.data || response;
+      this.showRowResults(poster, index, result, 'Validation');
+    } catch (error) {
+      this.showResultsError(index, `Validation failed: ${this.getErrorMessage(error)}`);
+    }
+  }
+
+  /**
+   * Run enrichment on a single poster
+   */
+  async runRowEnrichment(poster, index) {
+    this.showResultsLoading(index, 'Looking up external sources...');
+
+    try {
+      const response = await this.api.enrichSingleEntity(poster.name);
+      const result = response.data || response;
+      this.showRowResults(poster, index, result, 'Enrichment');
+    } catch (error) {
+      this.showResultsError(index, `Enrichment failed: ${this.getErrorMessage(error)}`);
+    }
+  }
+
+  /**
+   * Show loading state in the results panel
+   */
+  showResultsLoading(index, message) {
+    this.closeRowResults(index);
+
+    const html = `
+      <td colspan="8" class="td-results-panel">
+        <div class="row-results-panel">
+          <div class="row-results-header">
+            <div class="results-loading">
+              <div class="mini-spinner"></div>
+              <span>${this.escapeHtml(message)}</span>
+            </div>
+            <button class="results-close-btn" title="Close">&times;</button>
+          </div>
+        </div>
+      </td>
+    `;
+
+    this.insertResultPanel(index, html);
+  }
+
+  /**
+   * Show error in the results panel
+   */
+  showResultsError(index, message) {
+    this.closeRowResults(index);
+
+    const html = `
+      <td colspan="8" class="td-results-panel">
+        <div class="row-results-panel results-error">
+          <div class="row-results-header">
+            <span class="results-error-text">${this.escapeHtml(message)}</span>
+            <button class="results-close-btn" title="Close">&times;</button>
+          </div>
+        </div>
+      </td>
+    `;
+
+    this.insertResultPanel(index, html);
+  }
+
+  /**
+   * Show validation/enrichment results with accept/reject UI
+   */
+  showRowResults(poster, index, result, actionType) {
+    this.closeRowResults(index);
+
+    const score = result.overallScore ?? 0;
+    const status = result.status || 'unknown';
+    const suggestions = result.suggestions || [];
+    const validatorResults = result.validatorResults || [];
+    const scoreClass = score >= 70 ? 'score-good' : score >= 40 ? 'score-warning' : 'score-bad';
+    const statusClass = status === 'validated' ? 'status-validated' : status === 'warning' ? 'status-warning' : status === 'mismatch' ? 'status-mismatch' : 'status-unverified';
+
+    let html = `
+      <td colspan="8" class="td-results-panel">
+        <div class="row-results-panel">
+          <div class="row-results-header">
+            <div>
+              <span class="results-action-label">${this.escapeHtml(actionType)}</span>
+              <span class="score-badge ${scoreClass}">${score}/100</span>
+              <span class="status-badge ${statusClass}">${this.escapeHtml(status)}</span>
+              ${result.processingTimeMs ? `<span class="results-time">${(result.processingTimeMs / 1000).toFixed(1)}s</span>` : ''}
+            </div>
+            <button class="results-close-btn" title="Close">&times;</button>
+          </div>
+    `;
+
+    // Show validator results (matches and confirmations)
+    if (validatorResults.length > 0) {
+      const matches = validatorResults.filter(r => r.status === 'match');
+      const issues = validatorResults.filter(r => r.status !== 'match');
+
+      if (matches.length > 0) {
+        html += `
+          <div class="validator-matches">
+            <p class="results-label">Confirmed fields:</p>
+            <div class="match-tags">
+              ${matches.map(r => `
+                <span class="match-tag" title="${this.escapeHtml(r.message || `${r.source}: ${r.validatedValue || r.originalValue}`)}">
+                  ${this.escapeHtml(r.field)}
+                  <span class="match-source">${this.escapeHtml(r.source)}</span>
+                </span>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    // Show suggestions table
+    if (suggestions.length > 0) {
+      html += `
+        <table class="suggestions-table">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Current</th>
+              <th>Suggested</th>
+              <th>Confidence</th>
+              <th>Source</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${suggestions.map((s, si) => `
+              <tr class="suggestion-row" data-suggestion-index="${si}">
+                <td class="suggestion-field">${this.escapeHtml(s.field)}</td>
+                <td class="suggestion-current">${s.currentValue ? this.escapeHtml(s.currentValue) : '<span class="empty-value">empty</span>'}</td>
+                <td class="suggestion-proposed">${this.escapeHtml(s.suggestedValue)}</td>
+                <td><span class="confidence-pill ${s.confidence >= 0.8 ? 'conf-high' : s.confidence >= 0.5 ? 'conf-med' : 'conf-low'}">${Math.round(s.confidence * 100)}%</span></td>
+                <td class="suggestion-source">${this.escapeHtml(s.source)}</td>
+                <td class="suggestion-actions">
+                  <button class="suggestion-accept" data-entity="${this.escapeHtml(poster.name)}" data-field="${this.escapeHtml(s.field)}" data-value="${this.escapeHtml(s.suggestedValue)}" data-index="${index}" title="Accept">&#10003;</button>
+                  <button class="suggestion-reject" data-suggestion-index="${si}" title="Dismiss">&#10005;</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <div class="results-footer">
+          <button class="results-accept-all" data-entity="${this.escapeHtml(poster.name)}" data-index="${index}">Accept All (${suggestions.length})</button>
+        </div>
+      `;
+    } else if (validatorResults.length === 0) {
+      html += `<p class="results-message results-success">No changes suggested. All fields look good.</p>`;
+    }
+
+    // Show external matches
+    const externalMatches = result.externalMatches || [];
+    if (externalMatches.length > 0) {
+      html += `
+        <div class="external-matches">
+          <p class="results-label">External matches:</p>
+          <div class="match-tags">
+            ${externalMatches.map(m => `
+              <span class="external-match-tag" title="Match score: ${Math.round(m.matchScore * 100)}%">
+                ${this.escapeHtml(m.source)}: ${this.escapeHtml(m.name || m.externalId)}
+              </span>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    html += `</div></td>`;
+
+    const panelRow = this.insertResultPanel(index, html);
+
+    // Bind accept/reject handlers
+    if (panelRow) {
+      panelRow.querySelectorAll('.suggestion-accept').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.acceptSuggestion(
+            btn.dataset.entity,
+            btn.dataset.field,
+            btn.dataset.value,
+            parseInt(btn.dataset.index),
+            btn.closest('.suggestion-row')
+          );
+        });
+      });
+
+      panelRow.querySelectorAll('.suggestion-reject').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          btn.closest('.suggestion-row').remove();
+          // Update accept-all count
+          const remaining = panelRow.querySelectorAll('.suggestion-row');
+          const acceptAllBtn = panelRow.querySelector('.results-accept-all');
+          if (acceptAllBtn) {
+            if (remaining.length === 0) {
+              acceptAllBtn.closest('.results-footer').remove();
+            } else {
+              acceptAllBtn.textContent = `Accept All (${remaining.length})`;
+            }
+          }
+        });
+      });
+
+      const acceptAllBtn = panelRow.querySelector('.results-accept-all');
+      if (acceptAllBtn) {
+        acceptAllBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const remainingRows = panelRow.querySelectorAll('.suggestion-row');
+          const fixes = Array.from(remainingRows).map(row => ({
+            entityId: row.querySelector('.suggestion-accept').dataset.entity,
+            field: row.querySelector('.suggestion-accept').dataset.field,
+            value: row.querySelector('.suggestion-accept').dataset.value,
+          }));
+          if (fixes.length > 0) {
+            this.acceptAllSuggestions(fixes, parseInt(acceptAllBtn.dataset.index));
+          }
+        });
+      }
+    }
+  }
+
+  /**
+   * Insert a result panel <tr> below the poster row
+   */
+  insertResultPanel(index, innerHtml) {
+    const posterRow = this.elements.posterTbody.querySelector(`tr[data-index="${index}"]`);
+    if (!posterRow) return null;
+
+    const panelRow = document.createElement('tr');
+    panelRow.className = 'results-panel-row';
+    panelRow.dataset.panelIndex = index;
+    panelRow.innerHTML = innerHtml;
+
+    posterRow.after(panelRow);
+    this.openResultPanels.set(index, panelRow);
+
+    // Bind close button
+    const closeBtn = panelRow.querySelector('.results-close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeRowResults(index);
+      });
+    }
+
+    return panelRow;
+  }
+
+  /**
+   * Close/remove the results panel for a row
+   */
+  closeRowResults(index) {
+    const existing = this.openResultPanels.get(index);
+    if (existing) {
+      existing.remove();
+      this.openResultPanels.delete(index);
+    }
+    // Also remove any orphaned panel rows
+    const orphaned = this.elements.posterTbody.querySelector(`tr.results-panel-row[data-panel-index="${index}"]`);
+    if (orphaned) orphaned.remove();
+  }
+
+  /**
+   * Accept a single suggestion and apply the fix
+   */
+  async acceptSuggestion(entityName, field, value, rowIndex, suggestionRow) {
+    // Visual feedback
+    suggestionRow.classList.add('suggestion-applying');
+    const acceptBtn = suggestionRow.querySelector('.suggestion-accept');
+    if (acceptBtn) acceptBtn.disabled = true;
+
+    try {
+      await this.api.applyQAFix(entityName, field, value);
+
+      // Remove the suggestion row with animation
+      suggestionRow.classList.add('suggestion-accepted');
+      setTimeout(() => {
+        suggestionRow.remove();
+        // Update accept-all count
+        const panelRow = this.openResultPanels.get(rowIndex);
+        if (panelRow) {
+          const remaining = panelRow.querySelectorAll('.suggestion-row');
+          const acceptAllBtn = panelRow.querySelector('.results-accept-all');
+          if (acceptAllBtn) {
+            if (remaining.length === 0) {
+              acceptAllBtn.closest('.results-footer').remove();
+            } else {
+              acceptAllBtn.textContent = `Accept All (${remaining.length})`;
+            }
+          }
+        }
+      }, 300);
+
+      // Refresh the poster row data
+      await this.refreshSingleRow(rowIndex);
+    } catch (error) {
+      suggestionRow.classList.remove('suggestion-applying');
+      if (acceptBtn) acceptBtn.disabled = false;
+      console.error('Failed to apply fix:', error);
+      // Brief error indicator
+      suggestionRow.classList.add('suggestion-error');
+      setTimeout(() => suggestionRow.classList.remove('suggestion-error'), 2000);
+    }
+  }
+
+  /**
+   * Accept all remaining suggestions in batch
+   */
+  async acceptAllSuggestions(fixes, rowIndex) {
+    const panelRow = this.openResultPanels.get(rowIndex);
+    if (!panelRow) return;
+
+    const acceptAllBtn = panelRow.querySelector('.results-accept-all');
+    if (acceptAllBtn) {
+      acceptAllBtn.disabled = true;
+      acceptAllBtn.textContent = 'Applying...';
+    }
+
+    try {
+      await this.api.applyQAFixBatch(fixes);
+
+      // Remove all suggestion rows
+      panelRow.querySelectorAll('.suggestion-row').forEach(row => {
+        row.classList.add('suggestion-accepted');
+      });
+      setTimeout(() => {
+        panelRow.querySelectorAll('.suggestion-row').forEach(row => row.remove());
+        if (acceptAllBtn) acceptAllBtn.closest('.results-footer').remove();
+
+        // Show success message
+        const panel = panelRow.querySelector('.row-results-panel');
+        if (panel) {
+          const msg = document.createElement('p');
+          msg.className = 'results-message results-success';
+          msg.textContent = `${fixes.length} changes applied successfully.`;
+          panel.appendChild(msg);
+        }
+      }, 300);
+
+      // Refresh the poster row
+      await this.refreshSingleRow(rowIndex);
+    } catch (error) {
+      if (acceptAllBtn) {
+        acceptAllBtn.disabled = false;
+        acceptAllBtn.textContent = `Accept All (${fixes.length})`;
+      }
+      console.error('Failed to apply batch fixes:', error);
+    }
+  }
+
+  /**
+   * Refresh a single poster row after applying fixes
+   */
+  async refreshSingleRow(index) {
+    const poster = this.posters[index];
+    if (!poster) return;
+
+    try {
+      const result = await this.api.getPoster(poster.name);
+      const updatedPoster = result.data || result;
+      this.posters[index] = updatedPoster;
+
+      // Re-render just this row
+      const oldRow = this.elements.posterTbody.querySelector(`tr[data-index="${index}"]`);
+      if (oldRow) {
+        const tempContainer = document.createElement('tbody');
+        tempContainer.innerHTML = this.renderTableRow(updatedPoster, index);
+        const newRow = tempContainer.firstElementChild;
+
+        oldRow.replaceWith(newRow);
+
+        // Re-bind click handlers for the new row
+        const thumbnail = newRow.querySelector('.thumbnail-wrapper, .thumbnail-loading, .thumbnail-placeholder');
+        if (thumbnail) {
+          thumbnail.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.openLightbox(this.posters[index]);
+          });
+        }
+        const nameCell = newRow.querySelector('.td-name');
+        if (nameCell) {
+          nameCell.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.openPosterDetail(this.posters[index]);
+          });
+        }
+        newRow.querySelectorAll('.entity-link').forEach(link => {
+          link.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const type = link.dataset.type;
+            const value = link.dataset.value;
+            if (type && value) this.setFilter(type, value);
+          });
+        });
+        const actionBtn = newRow.querySelector('.row-action-trigger');
+        if (actionBtn) {
+          actionBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.showRowActionMenu(actionBtn, this.posters[index], index);
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to refresh row:', error);
+    }
   }
 
   /**

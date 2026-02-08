@@ -672,6 +672,9 @@ async function cleanupPosterGraph(
     // Find the event entity (connected via ADVERTISES_EVENT)
     const eventEntity = connectedEntities.find(e => e.relationType === 'ADVERTISES_EVENT');
 
+    // Find Show entities (connected via ADVERTISES_SHOW)
+    const showEntities = connectedEntities.filter(e => e.relationType === 'ADVERTISES_SHOW');
+
     // If there's an event, get its relationships too to find connected artists/venues through the event
     let eventRelatedEntities: Array<{ name: string; relationType: string }> = [];
     if (eventEntity) {
@@ -686,6 +689,24 @@ async function cleanupPosterGraph(
       }
     }
 
+    // Get relationships through Show entities too
+    const showRelatedEntities: Array<{ name: string; relationType: string }> = [];
+    for (const showEntity of showEntities) {
+      try {
+        const showGraph = await knowledgeGraphManager.openNodes([showEntity.name]);
+        for (const rel of showGraph.relations) {
+          if (rel.from === showEntity.name && rel.from !== posterEntityName) {
+            showRelatedEntities.push({ name: rel.to, relationType: rel.relationType });
+          }
+          if (rel.to === showEntity.name && rel.from !== posterEntityName) {
+            showRelatedEntities.push({ name: rel.from, relationType: rel.relationType });
+          }
+        }
+      } catch {
+        // Show entity may not exist
+      }
+    }
+
     // Delete the poster entity first (this also removes its relationships)
     await knowledgeGraphManager.deleteEntities([posterEntityName]);
     deleted.push(posterEntityName);
@@ -696,15 +717,29 @@ async function cleanupPosterGraph(
       deleted.push(eventEntity.name);
     }
 
+    // Delete Show entities
+    for (const showEntity of showEntities) {
+      try {
+        await knowledgeGraphManager.deleteEntities([showEntity.name]);
+        deleted.push(showEntity.name);
+      } catch {
+        // Already deleted
+      }
+    }
+
     // Check artists and venues for orphan status (no remaining relationships)
-    // Combine entities connected directly to poster and through event
+    // Combine entities connected directly to poster, through event, and through shows
+    const deletedNames = new Set([posterEntityName, eventEntity?.name, ...showEntities.map(s => s.name)].filter(Boolean) as string[]);
     const candidateOrphans = new Set<string>();
     for (const e of connectedEntities) {
-      if (e.relationType !== 'ADVERTISES_EVENT' && e.relationType !== 'HAS_TYPE') {
+      if (e.relationType !== 'ADVERTISES_EVENT' && e.relationType !== 'ADVERTISES_SHOW' && e.relationType !== 'HAS_TYPE') {
         candidateOrphans.add(e.name);
       }
     }
     for (const e of eventRelatedEntities) {
+      candidateOrphans.add(e.name);
+    }
+    for (const e of showRelatedEntities) {
       candidateOrphans.add(e.name);
     }
 
@@ -718,10 +753,9 @@ async function cleanupPosterGraph(
           continue;
         }
 
-        // Count remaining relationships (after poster and event were deleted)
+        // Count remaining relationships (after poster, event, and shows were deleted)
         const remainingRelations = entityGraph.relations.filter(
-          r => r.from !== posterEntityName && r.to !== posterEntityName &&
-               (!eventEntity || (r.from !== eventEntity.name && r.to !== eventEntity.name))
+          r => !deletedNames.has(r.from) && !deletedNames.has(r.to)
         );
 
         if (remainingRelations.length === 0) {
@@ -1345,6 +1379,97 @@ async function createPosterRelationshipsWithEvent(
           updatedAt: now
         }
       });
+    }
+  }
+
+  // Step 5: Create Show entities for temporal searchability
+  const year = entity.year;
+  if (year || entity.event_date) {
+    const artistSlug = entity.headliner
+      ? entity.headliner.toLowerCase().replace(/[^a-z0-9]/g, '_')
+      : 'unknown';
+    const venueSlug = entity.venue_name
+      ? entity.venue_name.toLowerCase().replace(/[^a-z0-9]/g, '_')
+      : 'none';
+
+    // Parse multiple dates from event_dates or fall back to event_date
+    const dateSlugs: Array<{ slug: string; rawDate: string; dayOfWeek?: string }> = [];
+
+    if (entity.event_dates && entity.event_dates.length > 0) {
+      for (const d of entity.event_dates) {
+        const slug = d.replace(/\//g, '-').replace(/[^a-z0-9-]/gi, '_').toLowerCase();
+        dateSlugs.push({ slug, rawDate: d });
+      }
+    } else if (entity.event_date) {
+      const slug = entity.event_date.replace(/\//g, '-').replace(/[^a-z0-9-]/gi, '_').toLowerCase();
+      dateSlugs.push({ slug, rawDate: entity.event_date });
+    } else if (year) {
+      dateSlugs.push({ slug: String(year), rawDate: String(year) });
+    }
+
+    for (let i = 0; i < dateSlugs.length; i++) {
+      const { slug: dateSlug, rawDate } = dateSlugs[i];
+      const showId = `show_${artistSlug}_${venueSlug}_${dateSlug}`;
+
+      const showObservations: string[] = [
+        `Date: ${rawDate}`,
+        year ? `Year: ${year}` : '',
+        entity.headliner ? `Headliner: ${entity.headliner}` : '',
+        entity.venue_name ? `Venue: ${entity.venue_name}` : '',
+        entity.city ? `City: ${entity.city}` : '',
+        entity.poster_type ? `Type: ${entity.poster_type}` : '',
+        dateSlugs.length > 1 ? `Show ${i + 1} of ${dateSlugs.length}` : '',
+      ].filter(o => o);
+
+      try {
+        await knowledgeGraphManager.createEntities([{
+          name: showId,
+          entityType: 'Show',
+          observations: showObservations,
+        }]);
+      } catch {
+        // Entity might already exist
+      }
+
+      // Poster → ADVERTISES_SHOW → Show
+      relations.push({
+        from: entity.name,
+        to: showId,
+        relationType: 'ADVERTISES_SHOW',
+        metadata: { createdAt: now, updatedAt: now },
+      });
+
+      // Show → HELD_AT → Venue
+      if (entity.venue_name) {
+        const venueEntityName = `venue_${entity.venue_name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+        relations.push({
+          from: showId,
+          to: venueEntityName,
+          relationType: 'HELD_AT',
+          metadata: { createdAt: now, updatedAt: now },
+        });
+      }
+
+      // Headliner → PERFORMS_IN → Show
+      if (entity.headliner) {
+        const headlinerEntityName = `artist_${entity.headliner.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+        relations.push({
+          from: headlinerEntityName,
+          to: showId,
+          relationType: 'PERFORMS_IN',
+          metadata: { is_headliner: true, billing_order: 1, createdAt: now, updatedAt: now },
+        });
+      }
+
+      // Show → PART_OF_EVENT → Event
+      if (eventName) {
+        relations.push({
+          from: showId,
+          to: eventName,
+          relationType: 'PART_OF_EVENT',
+          metadata: { createdAt: now, updatedAt: now },
+        });
+      }
     }
   }
 

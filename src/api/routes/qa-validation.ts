@@ -237,6 +237,31 @@ export function createQAValidationRoutes(
   );
 
   /**
+   * POST /enrich/entity
+   * Enrich a single entity using external APIs (preview mode)
+   */
+  router.post(
+    '/enrich/entity',
+    asyncHandler(async (req: Request, res: Response) => {
+      const { entityName } = req.body;
+
+      if (!entityName || typeof entityName !== 'string') {
+        throw new ValidationError('entityName is required and must be a string');
+      }
+
+      const result = await qaService.enrichSingleEntity(entityName);
+
+      if (!result) {
+        throw new NotFoundError(`Entity not found: ${entityName}`);
+      }
+
+      res.json({
+        data: result,
+      });
+    })
+  );
+
+  /**
    * GET /health
    * Check external API health
    */
