@@ -2,7 +2,9 @@ import { Router } from 'express';
 import type { EntityService } from '../../core/services/EntityService.js';
 import type { SearchService } from '../../core/services/SearchService.js';
 import type { StorageProvider } from '../../storage/StorageProvider.js';
+import { PosterTypeQueryService } from '../../core/services/PosterTypeQueryService.js';
 import { asyncHandler, ValidationError } from '../middleware/errorHandler.js';
+import { logger } from '../../utils/logger.js';
 
 /**
  * SearchService provider - can be a SearchService instance or a getter function
@@ -22,6 +24,31 @@ export function createSearchRoutes(
   searchServiceProvider?: SearchServiceProvider
 ): Router {
   const router = Router();
+
+  // Create PosterTypeQueryService for enriching search results
+  const posterTypeQueryService = storageProvider ? new PosterTypeQueryService(storageProvider) : null;
+
+  // Helper to enrich Poster entities in search results with type and artist relationships
+  const enrichPosterResults = async (results: any[]): Promise<any[]> => {
+    if (!posterTypeQueryService || results.length === 0) return results;
+
+    const posterResults = results.filter(r => r.entityType === 'Poster');
+    if (posterResults.length === 0) return results;
+
+    try {
+      let enrichedPosters = await posterTypeQueryService.enrichPostersWithTypes(posterResults);
+      enrichedPosters = await posterTypeQueryService.enrichPostersWithArtists(enrichedPosters);
+      const enrichedMap = new Map(enrichedPosters.map(p => [p.name, p]));
+      return results.map(r =>
+        r.entityType === 'Poster' && enrichedMap.has(r.name)
+          ? { ...r, ...enrichedMap.get(r.name)! }
+          : r
+      );
+    } catch (err) {
+      logger.warn('Failed to enrich search results:', err);
+      return results;
+    }
+  };
 
   // Helper to get the current SearchService (supports both direct instance and getter function)
   const getSearchService = (): SearchService | undefined => {
@@ -57,12 +84,15 @@ export function createSearchRoutes(
     if (searchService) {
       const strategyName = (strategy as string) || searchService.getDefaultStrategy();
 
-      const results = await searchService.searchWithStrategy(query, strategyName, {
+      let results = await searchService.searchWithStrategy(query, strategyName, {
         limit: parsedLimit,
         offset: parsedOffset,
         entityTypes: parsedEntityTypes,
         expertiseArea: expertiseArea as string
       });
+
+      // Enrich Poster results with type and artist relationships
+      results = await enrichPosterResults(results);
 
       res.json({
         data: results,

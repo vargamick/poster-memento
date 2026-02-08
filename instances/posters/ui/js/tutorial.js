@@ -1,7 +1,9 @@
 /**
  * Tutorial Overlay System
  *
- * A click-through guided tour for the Process Images page
+ * A click-through guided tour for the Process Images page.
+ * Steps that reference empty sections include inline preview
+ * illustrations so users can see what populated content looks like.
  */
 
 class TutorialOverlay {
@@ -11,6 +13,7 @@ class TutorialOverlay {
     this.overlay = null;
     this.spotlight = null;
     this.tooltip = null;
+    this.highlightedEl = null;
 
     // Define the tutorial steps
     this.steps = [
@@ -22,19 +25,43 @@ class TutorialOverlay {
       },
       {
         title: 'Step 1: Select or Create a Session',
-        content: 'Sessions are staging areas for your images. Select an existing session from the dropdown, or click "+ New Session" to create one. Sessions help organize batches of images before processing.',
+        content: 'Sessions are staging areas for your images. Select an existing session from the dropdown, or click "+ New Session" to create one.',
+        preview: `
+          <div class="tp-mock">
+            <div class="tp-mock-row">
+              <div class="tp-select">Concert Posters 2024 (12 images)</div>
+              <div class="tp-btn tp-btn-accent">+ New</div>
+              <div class="tp-btn tp-btn-danger">Delete</div>
+            </div>
+            <div class="tp-label">Images in session: <strong>12</strong></div>
+          </div>`,
         target: '#phase-session',
         position: 'bottom'
       },
       {
         title: 'Session Dropdown',
         content: 'Use this dropdown to switch between sessions. Each session shows how many images it contains.',
+        preview: `
+          <div class="tp-mock">
+            <div class="tp-select-open">
+              <div class="tp-option tp-active">Concert Posters 2024 (12 images)</div>
+              <div class="tp-option">January Batch (5 images)</div>
+              <div class="tp-option">Album Art (8 images)</div>
+            </div>
+          </div>`,
         target: '#session-select',
         position: 'bottom'
       },
       {
         title: 'Create New Session',
         content: 'Click here to create a new session. You\'ll enter a name for your session (e.g., "Concert Posters 2024" or "January Batch").',
+        preview: `
+          <div class="tp-mock">
+            <div class="tp-mock-row">
+              <div class="tp-input">My New Session</div>
+              <div class="tp-btn tp-btn-accent">Create</div>
+            </div>
+          </div>`,
         target: '#new-session-btn',
         position: 'bottom'
       },
@@ -53,12 +80,24 @@ class TutorialOverlay {
       {
         title: 'Local Files List',
         content: 'After selecting a folder, your images appear here. Click on images to select them, or use "Select All" to choose everything.',
+        preview: `
+          <div class="tp-mock">
+            <div class="tp-file-row"><span class="tp-check on"></span><span class="tp-fname">band-poster-01.jpg</span><span class="tp-fsize">2.4 MB</span></div>
+            <div class="tp-file-row"><span class="tp-check on"></span><span class="tp-fname">concert-flyer-nyc.png</span><span class="tp-fsize">1.8 MB</span></div>
+            <div class="tp-file-row"><span class="tp-check"></span><span class="tp-fname">album-cover-art.jpg</span><span class="tp-fsize">3.1 MB</span></div>
+            <div class="tp-file-row"><span class="tp-check"></span><span class="tp-fname">festival-2024.jpg</span><span class="tp-fsize">4.2 MB</span></div>
+          </div>`,
         target: '#local-file-list',
         position: 'top'
       },
       {
         title: 'Upload to Session',
         content: 'Once you\'ve selected images, click this button to upload them to your current session. They\'ll be stored in the cloud ready for processing.',
+        preview: `
+          <div class="tp-mock">
+            <div class="tp-progress-bar"><div class="tp-progress-fill" style="width:65%"></div></div>
+            <div class="tp-label">Uploading 4 of 6...</div>
+          </div>`,
         target: '#upload-to-session-btn',
         position: 'top'
       },
@@ -71,6 +110,15 @@ class TutorialOverlay {
       {
         title: 'Session Images Grid',
         content: 'Your uploaded images appear as a grid of thumbnails. Click images to select them for processing. Selected images have a blue border.',
+        preview: `
+          <div class="tp-mock">
+            <div class="tp-grid">
+              <div class="tp-thumb selected"><div class="tp-thumb-img">P1</div><div class="tp-thumb-name">poster-01.jpg</div></div>
+              <div class="tp-thumb selected"><div class="tp-thumb-img">P2</div><div class="tp-thumb-name">concert.png</div></div>
+              <div class="tp-thumb"><div class="tp-thumb-img">P3</div><div class="tp-thumb-name">album.jpg</div></div>
+              <div class="tp-thumb"><div class="tp-thumb-img">P4</div><div class="tp-thumb-name">flyer.jpg</div></div>
+            </div>
+          </div>`,
         target: '#session-image-list',
         position: 'top'
       },
@@ -83,6 +131,14 @@ class TutorialOverlay {
       {
         title: 'Vision Model Selection',
         content: 'Choose which AI model to use for analyzing your posters. Different models have different strengths - minicpm-v is recommended for best accuracy.',
+        preview: `
+          <div class="tp-mock">
+            <div class="tp-select-open">
+              <div class="tp-option tp-active">minicpm-v (recommended)</div>
+              <div class="tp-option">llava:13b</div>
+              <div class="tp-option">llama3.2-vision:11b</div>
+            </div>
+          </div>`,
         target: '#model-select',
         position: 'bottom'
       },
@@ -94,7 +150,21 @@ class TutorialOverlay {
       },
       {
         title: 'Processing Progress',
-        content: 'When processing starts, you\'ll see a progress section with pipeline stages: Download, Extract, Store, and Live. Watch the activity log for real-time updates.',
+        content: 'When processing starts, you\'ll see a progress section with pipeline stages: Download, Extract, Store, and Complete. Watch the activity log for real-time updates.',
+        preview: `
+          <div class="tp-mock">
+            <div class="tp-pipeline">
+              <div class="tp-stage done">Download</div>
+              <div class="tp-connector done"></div>
+              <div class="tp-stage active">Extract</div>
+              <div class="tp-connector"></div>
+              <div class="tp-stage">Store</div>
+              <div class="tp-connector"></div>
+              <div class="tp-stage">Complete</div>
+            </div>
+            <div class="tp-progress-bar"><div class="tp-progress-fill" style="width:40%"></div></div>
+            <div class="tp-log-line">Extracting: poster-01.jpg...</div>
+          </div>`,
         target: '#progress-section',
         position: 'top',
         optional: true
@@ -135,6 +205,7 @@ class TutorialOverlay {
         </div>
         <h3 class="tutorial-title"></h3>
         <p class="tutorial-content"></p>
+        <div class="tutorial-preview"></div>
         <div class="tutorial-nav">
           <button class="tutorial-btn tutorial-prev-btn">Previous</button>
           <button class="tutorial-btn tutorial-next-btn">Next</button>
@@ -149,6 +220,7 @@ class TutorialOverlay {
     this.tooltip = this.overlay.querySelector('.tutorial-tooltip');
     this.titleEl = this.overlay.querySelector('.tutorial-title');
     this.contentEl = this.overlay.querySelector('.tutorial-content');
+    this.previewEl = this.overlay.querySelector('.tutorial-preview');
     this.stepIndicator = this.overlay.querySelector('.tutorial-step-indicator');
     this.prevBtn = this.overlay.querySelector('.tutorial-prev-btn');
     this.nextBtn = this.overlay.querySelector('.tutorial-next-btn');
@@ -168,7 +240,6 @@ class TutorialOverlay {
     helpBtn.title = 'Start guided tour';
     helpBtn.addEventListener('click', () => this.start());
 
-    // Find or create a container for the button
     const workflowSteps = workflowInfo.querySelector('.workflow-steps');
     if (workflowSteps) {
       workflowInfo.style.position = 'relative';
@@ -200,12 +271,14 @@ class TutorialOverlay {
       }
     });
 
-    // Handle window resize
-    window.addEventListener('resize', () => {
-      if (this.isActive) {
-        this.positionSpotlight();
+    // Reposition on scroll or resize
+    const reposition = () => {
+      if (this.isActive && this.highlightedEl) {
+        this.positionSpotlight(this.highlightedEl, this.steps[this.currentStep]?.position);
       }
-    });
+    };
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
   }
 
   /**
@@ -226,7 +299,18 @@ class TutorialOverlay {
     this.isActive = false;
     this.overlay.classList.add('hidden');
     document.body.classList.remove('tutorial-active');
+    this.clearHighlight();
     this.spotlight.style.opacity = '0';
+  }
+
+  /**
+   * Remove highlight class from previously highlighted element
+   */
+  clearHighlight() {
+    if (this.highlightedEl) {
+      this.highlightedEl.classList.remove('tutorial-highlighted');
+      this.highlightedEl = null;
+    }
   }
 
   /**
@@ -258,6 +342,9 @@ class TutorialOverlay {
     const step = this.steps[this.currentStep];
     if (!step) return;
 
+    // Clear previous highlight
+    this.clearHighlight();
+
     // Find target element
     let targetEl = document.querySelector(step.target);
 
@@ -267,22 +354,40 @@ class TutorialOverlay {
       return;
     }
 
-    // Update content
+    // Update text content
     this.titleEl.textContent = step.title;
     this.contentEl.textContent = step.content;
     this.stepIndicator.textContent = `${this.currentStep + 1} of ${this.steps.length}`;
+
+    // Update preview illustration
+    if (step.preview) {
+      this.previewEl.innerHTML = step.preview;
+      this.previewEl.style.display = 'block';
+    } else {
+      this.previewEl.innerHTML = '';
+      this.previewEl.style.display = 'none';
+    }
 
     // Update navigation buttons
     this.prevBtn.style.visibility = this.currentStep === 0 ? 'hidden' : 'visible';
     this.nextBtn.textContent = this.currentStep === this.steps.length - 1 ? 'Finish' : 'Next';
 
-    // Position spotlight and tooltip
-    this.positionSpotlight(targetEl, step.position);
-
-    // Scroll target into view if needed
+    // Highlight the target element (elevate it above the backdrop)
     if (targetEl) {
+      targetEl.classList.add('tutorial-highlighted');
+      this.highlightedEl = targetEl;
+
+      // Scroll into view first, then position after scroll settles
       targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => {
+        if (this.isActive) {
+          this.positionSpotlight(targetEl, step.position);
+        }
+      }, 400);
     }
+
+    // Position immediately too (will refine after scroll)
+    this.positionSpotlight(targetEl, step.position);
   }
 
   /**
@@ -301,9 +406,9 @@ class TutorialOverlay {
     const rect = targetEl.getBoundingClientRect();
     const padding = 8;
 
-    // Position spotlight
+    // Position spotlight (fixed, viewport-relative)
     this.spotlight.style.opacity = '1';
-    this.spotlight.style.top = `${rect.top - padding + window.scrollY}px`;
+    this.spotlight.style.top = `${rect.top - padding}px`;
     this.spotlight.style.left = `${rect.left - padding}px`;
     this.spotlight.style.width = `${rect.width + padding * 2}px`;
     this.spotlight.style.height = `${rect.height + padding * 2}px`;
@@ -318,23 +423,23 @@ class TutorialOverlay {
 
     switch (position) {
       case 'top':
-        top = rect.top + window.scrollY - tooltipHeight - margin;
+        top = rect.top - tooltipHeight - margin;
         left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
         break;
       case 'bottom':
-        top = rect.bottom + window.scrollY + margin;
+        top = rect.bottom + margin;
         left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
         break;
       case 'left':
-        top = rect.top + window.scrollY + (rect.height / 2) - (tooltipHeight / 2);
+        top = rect.top + (rect.height / 2) - (tooltipHeight / 2);
         left = rect.left - tooltipWidth - margin;
         break;
       case 'right':
-        top = rect.top + window.scrollY + (rect.height / 2) - (tooltipHeight / 2);
+        top = rect.top + (rect.height / 2) - (tooltipHeight / 2);
         left = rect.right + margin;
         break;
       default:
-        top = rect.bottom + window.scrollY + margin;
+        top = rect.bottom + margin;
         left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
     }
 
@@ -344,9 +449,9 @@ class TutorialOverlay {
 
     if (left < margin) left = margin;
     if (left + tooltipWidth > viewportWidth - margin) left = viewportWidth - tooltipWidth - margin;
-    if (top < margin) top = rect.bottom + window.scrollY + margin; // Flip to bottom
-    if (top + tooltipHeight > window.scrollY + viewportHeight - margin) {
-      top = rect.top + window.scrollY - tooltipHeight - margin; // Flip to top
+    if (top < margin) top = rect.bottom + margin; // Flip to bottom
+    if (top + tooltipHeight > viewportHeight - margin) {
+      top = rect.top - tooltipHeight - margin; // Flip to top
     }
 
     this.tooltip.style.top = `${top}px`;

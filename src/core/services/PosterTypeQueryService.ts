@@ -271,6 +271,70 @@ export class PosterTypeQueryService {
   }
 
   /**
+   * Enrich multiple poster entities with their artist relationships.
+   * Performs a single batch query for HEADLINED_ON and PERFORMED_ON relationships.
+   */
+  async enrichPostersWithArtists<T extends Entity>(posters: T[]): Promise<(T & { artistRelationships: Array<{ artistEntityName: string; displayName: string; relationType: string; confidence: number }> })[]> {
+    if (posters.length === 0) {
+      return [];
+    }
+
+    const hasCypher = typeof (this.storageProvider as any).runCypher === 'function';
+    if (!hasCypher) {
+      // Return posters with empty artist relationships if no Cypher support
+      return posters.map(p => ({ ...p, artistRelationships: [] }));
+    }
+
+    const posterNames = posters.map(p => p.name);
+
+    try {
+      const cypher = `
+        MATCH (p:Entity)-[r:RELATES_TO]->(a:Entity {entityType: 'Artist'})
+        WHERE r.relationType IN ['HEADLINED_ON', 'PERFORMED_ON'] AND p.name IN $posterNames
+        RETURN p.name as posterName, a.name as artistName, r.relationType as relationType, r.confidence as confidence
+        ORDER BY p.name, r.confidence DESC
+      `;
+
+      const results = await (this.storageProvider as any).runCypher(cypher, { posterNames });
+
+      const artistMap = new Map<string, Array<{ artistEntityName: string; displayName: string; relationType: string; confidence: number }>>();
+
+      if (results.records) {
+        for (const record of results.records) {
+          const posterName = record.get('posterName');
+          if (!artistMap.has(posterName)) {
+            artistMap.set(posterName, []);
+          }
+          const artistEntityName = record.get('artistName') || '';
+          // Convert entity name to display name: artist_john_doe -> John Doe
+          const displayName = artistEntityName
+            .replace(/^artist_/i, '')
+            .replace(/_/g, ' ')
+            .split(' ')
+            .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' ');
+
+          artistMap.get(posterName)!.push({
+            artistEntityName,
+            displayName,
+            relationType: record.get('relationType') || '',
+            confidence: record.get('confidence') ?? 0,
+          });
+        }
+      }
+
+      return posters.map(poster => ({
+        ...poster,
+        artistRelationships: artistMap.get(poster.name) || [],
+      }));
+    } catch (error) {
+      logger.error('Error enriching posters with artists', error);
+      // Return posters with empty artist relationships on error
+      return posters.map(p => ({ ...p, artistRelationships: [] }));
+    }
+  }
+
+  /**
    * Process Cypher results for relationship-based queries
    */
   private processRelationshipResults(results: any): PosterWithType[] {

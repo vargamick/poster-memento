@@ -33,6 +33,9 @@ class ProcessingManager {
     // Filter state
     this.filterText = '';
 
+    // Error tracking for summary display
+    this.processingErrors = [];
+
     this.elements = {};
     this.initialized = false;
   }
@@ -61,10 +64,12 @@ class ProcessingManager {
       sessionSelect: document.getElementById('session-select'),
       newSessionBtn: document.getElementById('new-session-btn'),
       newSessionName: document.getElementById('new-session-name'),
+      newSessionDesc: document.getElementById('new-session-desc'),
       createSessionBtn: document.getElementById('create-session-btn'),
       deleteSessionBtn: document.getElementById('delete-session-btn'),
       sessionInfo: document.getElementById('session-info'),
       sessionImageCount: document.getElementById('session-image-count'),
+      sessionDescription: document.getElementById('session-description'),
 
       // Step 2: Upload to session
       uploadSection: document.getElementById('upload-section'),
@@ -97,6 +102,12 @@ class ProcessingManager {
       processSelectedBtn: document.getElementById('process-selected-btn'),
       processAllBtn: document.getElementById('process-all-btn'),
 
+      // Consensus mode
+      consensusToggle: document.getElementById('consensus-toggle'),
+      consensusOptions: document.getElementById('consensus-options'),
+      consensusModelList: document.getElementById('consensus-model-list'),
+      consensusAgreement: document.getElementById('consensus-agreement'),
+
       // Progress section
       progressSection: document.getElementById('progress-section'),
       stageDownload: document.getElementById('stage-download'),
@@ -113,6 +124,10 @@ class ProcessingManager {
       progressLog: document.getElementById('progress-log'),
       toggleLogBtn: document.getElementById('toggle-log-btn'),
       cancelProcessingBtn: document.getElementById('cancel-processing-btn'),
+      newRunBtn: document.getElementById('new-run-btn'),
+
+      // Reprocess
+      reprocessSessionBtn: document.getElementById('reprocess-session-btn'),
 
       // Database management (Database Tab)
       dbEntities: document.getElementById('db-entities'),
@@ -123,6 +138,9 @@ class ProcessingManager {
       createBackupBtn: document.getElementById('create-backup-btn'),
       backupStatus: document.getElementById('backup-status'),
       dbActivityLog: document.getElementById('db-activity-log'),
+
+      // Reset (Database Tab)
+      resetAndProcessBtn: document.getElementById('reset-and-process-btn'),
 
       // Migration (Database Tab)
       migrationOldCount: document.getElementById('migration-old-count'),
@@ -151,6 +169,7 @@ class ProcessingManager {
     this.elements.newSessionBtn?.addEventListener('click', () => this.showNewSessionForm());
     this.elements.createSessionBtn?.addEventListener('click', () => this.createSession());
     this.elements.deleteSessionBtn?.addEventListener('click', () => this.deleteSession());
+    this.elements.reprocessSessionBtn?.addEventListener('click', () => this.reprocessSession());
 
     // Step 2: Upload
     this.elements.browseBtn?.addEventListener('click', () => this.browseLocalFolder());
@@ -173,13 +192,18 @@ class ProcessingManager {
     this.elements.processSelectedBtn?.addEventListener('click', () => this.processSelected());
     this.elements.processAllBtn?.addEventListener('click', () => this.processAll());
 
+    // Consensus mode toggle
+    this.elements.consensusToggle?.addEventListener('change', () => this.toggleConsensusMode());
+
     // Progress controls
     this.elements.toggleLogBtn?.addEventListener('click', () => this.toggleActivityLog());
     this.elements.cancelProcessingBtn?.addEventListener('click', () => this.cancelProcessing());
+    this.elements.newRunBtn?.addEventListener('click', () => this.startNewRun());
 
     // Database management
     this.elements.refreshDbStatsBtn?.addEventListener('click', () => this.loadDatabaseStats());
     this.elements.createBackupBtn?.addEventListener('click', () => this.createBackup());
+    this.elements.resetAndProcessBtn?.addEventListener('click', () => this.resetAndProcess());
 
     // Migration
     this.elements.checkMigrationBtn?.addEventListener('click', () => this.checkMigrationStatus());
@@ -201,9 +225,24 @@ class ProcessingManager {
       const result = await response.json();
 
       if (result.data?.models && this.elements.modelSelect) {
-        this.elements.modelSelect.innerHTML = result.data.models.map(m =>
+        const models = result.data.models;
+        this.elements.modelSelect.innerHTML = models.map(m =>
           `<option value="${m.key}" ${m.key === result.data.current ? 'selected' : ''}>${m.model}</option>`
         ).join('');
+
+        // Populate consensus model checklist
+        if (this.elements.consensusModelList) {
+          const defaultConsensusModels = ['minicpm-v-ollama', 'llava-13b-ollama'];
+          this.elements.consensusModelList.innerHTML = models.map(m => {
+            const checked = defaultConsensusModels.includes(m.key) ? 'checked' : '';
+            const provider = m.key.split('-').pop() || '';
+            return `<label class="consensus-model-item">
+              <input type="checkbox" value="${m.key}" ${checked}>
+              <span class="model-name">${m.model}</span>
+              <span class="model-provider">${provider}</span>
+            </label>`;
+          }).join('');
+        }
       }
     } catch (error) {
       console.error('Failed to load models:', error);
@@ -211,6 +250,38 @@ class ProcessingManager {
         this.elements.modelSelect.innerHTML = '<option value="">Default Model</option>';
       }
     }
+  }
+
+  /**
+   * Toggle consensus mode options panel
+   */
+  toggleConsensusMode() {
+    const enabled = this.elements.consensusToggle?.checked;
+    if (this.elements.consensusOptions) {
+      this.elements.consensusOptions.classList.toggle('hidden', !enabled);
+    }
+    if (this.elements.modelSelect) {
+      this.elements.modelSelect.disabled = enabled;
+    }
+  }
+
+  /**
+   * Get selected consensus models from checkboxes
+   */
+  getConsensusOptions() {
+    if (!this.elements.consensusToggle?.checked) return null;
+
+    const checkboxes = this.elements.consensusModelList?.querySelectorAll('input[type="checkbox"]:checked') || [];
+    const models = Array.from(checkboxes).map(cb => cb.value);
+
+    if (models.length < 2) return null;
+
+    return {
+      enabled: true,
+      models,
+      minAgreementRatio: parseFloat(this.elements.consensusAgreement?.value || '0.5'),
+      parallel: true
+    };
   }
 
   // ==========================================================================
@@ -286,6 +357,7 @@ class ProcessingManager {
       this.currentSession = result.session;
       await this.loadSessionImages();
       this.updateUI();
+      this.updateSessionDescription();
       this.addLogEntry(`Selected session: ${this.currentSession.name}`, 'info');
     } catch (error) {
       console.error('Failed to load session:', error);
@@ -300,6 +372,9 @@ class ProcessingManager {
     if (this.elements.newSessionName) {
       this.elements.newSessionName.classList.remove('hidden');
       this.elements.newSessionName.focus();
+    }
+    if (this.elements.newSessionDesc) {
+      this.elements.newSessionDesc.classList.remove('hidden');
     }
     if (this.elements.createSessionBtn) {
       this.elements.createSessionBtn.classList.remove('hidden');
@@ -319,6 +394,8 @@ class ProcessingManager {
       return;
     }
 
+    const description = this.elements.newSessionDesc?.value?.trim() || undefined;
+
     try {
       const response = await fetch('/api/v1/sessions', {
         method: 'POST',
@@ -326,7 +403,7 @@ class ProcessingManager {
           'Content-Type': 'application/json',
           'X-API-Key': 'posters-api-key-2024'
         },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ name, ...(description && { description }) })
       });
       const result = await response.json();
 
@@ -345,6 +422,10 @@ class ProcessingManager {
         if (this.elements.newSessionName) {
           this.elements.newSessionName.value = '';
           this.elements.newSessionName.classList.add('hidden');
+        }
+        if (this.elements.newSessionDesc) {
+          this.elements.newSessionDesc.value = '';
+          this.elements.newSessionDesc.classList.add('hidden');
         }
         if (this.elements.createSessionBtn) {
           this.elements.createSessionBtn.classList.add('hidden');
@@ -393,6 +474,73 @@ class ProcessingManager {
     } catch (error) {
       console.error('Failed to delete session:', error);
       this.showError('Failed to delete session: ' + error.message);
+    }
+  }
+
+  /**
+   * Reprocess images from a completed session.
+   * Cleans up graph entities and clones images into a new session.
+   */
+  async reprocessSession() {
+    if (!this.currentSessionId) return;
+
+    const sessionName = this.currentSession?.name || this.currentSessionId;
+    const confirmed = confirm(
+      `Reprocess session "${sessionName}"?\n\n` +
+      `This will:\n` +
+      `- Remove poster entities and their events from the graph\n` +
+      `- Delete orphaned artists/venues (with no other connections)\n` +
+      `- Copy images from live back into a new session\n` +
+      `- Remove the live copies\n\n` +
+      `You can then re-process the images with different settings.`
+    );
+    if (!confirmed) return;
+
+    try {
+      this.addLogEntry(`Reprocessing session: ${sessionName}...`, 'info');
+      this.elements.reprocessSessionBtn.disabled = true;
+
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(this.currentSessionId)}/reprocess`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': 'posters-api-key-2024'
+        }
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error?.message || result.message || 'Reprocess failed');
+      }
+
+      if (result.success) {
+        const cleanup = result.graphCleanup || [];
+        const totalDeleted = cleanup.reduce((sum, c) => sum + (c.deleted?.length || 0), 0);
+
+        this.addLogEntry(
+          `Reprocess complete: ${result.imagesCloned} images cloned to new session. ` +
+          `${totalDeleted} graph entities cleaned up.`,
+          'success'
+        );
+
+        // Mark browse as stale since we deleted graph entities
+        window.posterApp?.markBrowseStale();
+
+        // Reload sessions and select the new one
+        await this.loadSessions();
+        if (result.newSession?.sessionId) {
+          await this.selectSession(result.newSession.sessionId);
+        }
+      } else {
+        throw new Error('Reprocess failed');
+      }
+    } catch (error) {
+      console.error('Failed to reprocess session:', error);
+      this.showError('Failed to reprocess session: ' + error.message);
+    } finally {
+      if (this.elements.reprocessSessionBtn) {
+        this.elements.reprocessSessionBtn.disabled = false;
+      }
     }
   }
 
@@ -665,6 +813,7 @@ class ProcessingManager {
         </div>
         <div class="image-thumbnail">
           <img src="${img.url}" alt="${this.escapeHtml(img.filename)}" loading="lazy">
+          <button type="button" class="image-zoom-btn" data-url="${this.escapeHtml(img.url)}" data-name="${this.escapeHtml(img.filename)}" title="Enlarge image">&#x1F50D;</button>
         </div>
         <div class="image-info">
           <div class="image-name" title="${this.escapeHtml(img.filename)}">${this.escapeHtml(img.filename)}</div>
@@ -678,6 +827,14 @@ class ProcessingManager {
    * Handle click on session image
    */
   handleImageClick(e) {
+    // Check for zoom button click - open lightbox instead of toggling selection
+    const zoomBtn = e.target.closest('.image-zoom-btn');
+    if (zoomBtn) {
+      e.stopPropagation();
+      this.openImageLightbox(zoomBtn.dataset.url, zoomBtn.dataset.name);
+      return;
+    }
+
     const card = e.target.closest('.image-card');
     if (!card) return;
 
@@ -692,6 +849,21 @@ class ProcessingManager {
       card.querySelector('input').checked = true;
     }
     this.updateImageSelection();
+  }
+
+  /**
+   * Open the lightbox modal with an image (reuses browse tab lightbox)
+   */
+  openImageLightbox(url, name) {
+    const lightbox = document.getElementById('lightbox-modal');
+    const lightboxImage = document.getElementById('lightbox-image');
+    const lightboxCaption = document.getElementById('lightbox-caption');
+    if (lightbox && lightboxImage) {
+      lightboxImage.src = url;
+      if (lightboxCaption) lightboxCaption.textContent = name || '';
+      lightbox.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+    }
   }
 
   selectAllImages() {
@@ -764,12 +936,16 @@ class ProcessingManager {
     this.updateImageSelection();
 
     const modelKey = this.elements.modelSelect?.value || undefined;
+    const consensus = this.getConsensusOptions();
     const total = hashes.length;
     let processed = 0;
     let succeeded = 0;
     let failed = 0;
 
     this.addLogEntry(`Processing ${total} images from session...`, 'info');
+    if (consensus) {
+      this.addLogEntry(`Consensus mode: ${consensus.models.length} models (${consensus.models.join(', ')})`, 'info');
+    }
 
     try {
       for (let i = 0; i < hashes.length; i++) {
@@ -805,7 +981,8 @@ class ProcessingManager {
             body: JSON.stringify({
               imageHashes: [hash],
               batchSize: 1,
-              modelKey
+              modelKey,
+              ...(consensus && { consensus })
             })
           });
 
@@ -824,15 +1001,19 @@ class ProcessingManager {
               this.addLogEntry(`✓ ${r.title || r.entityName || imageName} → moved to live`, 'success');
             } else {
               failed++;
+              this.processingErrors.push({ imageName, hash, error: r.error || 'Unknown error' });
               this.addLogEntry(`✗ ${imageName}: ${r.error}`, 'error');
             }
           } else {
             failed++;
-            this.addLogEntry(`✗ ${imageName}: ${result.error || 'Processing failed'}`, 'error');
+            const errorMsg = result.error || 'Processing failed';
+            this.processingErrors.push({ imageName, hash, error: errorMsg });
+            this.addLogEntry(`✗ ${imageName}: ${errorMsg}`, 'error');
           }
 
         } catch (error) {
           failed++;
+          this.processingErrors.push({ imageName, hash, error: error.message });
           this.addLogEntry(`✗ ${imageName}: ${error.message}`, 'error');
         }
 
@@ -853,10 +1034,20 @@ class ProcessingManager {
 
       this.addLogEntry(`Processing complete: ${succeeded} succeeded, ${failed} failed`, succeeded > 0 ? 'success' : 'error');
 
+      // Show error summary if any failures
+      if (failed > 0) {
+        this.showErrorSummary();
+      }
+
       // Refresh session images (some moved to live)
       await this.loadSessionImages();
       await this.loadSessions(); // Update session counts
       await this.loadDatabaseStats(); // Update live count
+
+      // Mark browse tab as stale so it refreshes when switched to
+      if (succeeded > 0) {
+        window.posterApp?.markBrowseStale();
+      }
 
     } catch (error) {
       console.error('Processing error:', error);
@@ -865,6 +1056,10 @@ class ProcessingManager {
     } finally {
       this.isProcessing = false;
       this.updateImageSelection();
+
+      // Show "New Run" button, hide "Cancel"
+      if (this.elements.newRunBtn) this.elements.newRunBtn.classList.remove('hidden');
+      if (this.elements.cancelProcessingBtn) this.elements.cancelProcessingBtn.classList.add('hidden');
     }
   }
 
@@ -897,6 +1092,26 @@ class ProcessingManager {
     }
     if (this.elements.sessionImageCount) {
       this.elements.sessionImageCount.textContent = this.currentSession?.imageCount || 0;
+    }
+
+    // Show reprocess button when session has 0 remaining images (all processed to live)
+    if (this.elements.reprocessSessionBtn) {
+      const showReprocess = hasSession && this.sessionImages.length === 0;
+      this.elements.reprocessSessionBtn.classList.toggle('hidden', !showReprocess);
+    }
+  }
+
+  /**
+   * Show/hide session description display
+   */
+  updateSessionDescription() {
+    if (!this.elements.sessionDescription) return;
+
+    if (this.currentSession?.description) {
+      this.elements.sessionDescription.textContent = this.currentSession.description;
+      this.elements.sessionDescription.classList.remove('hidden');
+    } else {
+      this.elements.sessionDescription.classList.add('hidden');
     }
   }
 
@@ -989,6 +1204,9 @@ class ProcessingManager {
   resetProgress() {
     this.updateProgress(0, 0, 0, 0);
     if (this.elements.progressLog) this.elements.progressLog.innerHTML = '';
+    this.processingErrors = [];
+    const errorSummary = document.getElementById('error-summary');
+    if (errorSummary) errorSummary.classList.add('hidden');
   }
 
   addLogEntry(message, type = 'info') {
@@ -1016,6 +1234,68 @@ class ProcessingManager {
   cancelProcessing() {
     this.processingAborted = true;
     this.addLogEntry('Cancelling...', 'info');
+  }
+
+  /**
+   * Show error summary after processing with failures
+   */
+  showErrorSummary() {
+    if (this.processingErrors.length === 0) return;
+
+    const summaryEl = document.getElementById('error-summary');
+    if (!summaryEl) return;
+
+    summaryEl.classList.remove('hidden');
+    summaryEl.innerHTML = `
+      <div class="error-summary-header">
+        <span class="error-summary-title">${this.processingErrors.length} image(s) failed</span>
+        <button type="button" class="toggle-btn" id="toggle-error-details">Show Details</button>
+      </div>
+      <div class="error-summary-details hidden">
+        ${this.processingErrors.map(e => `
+          <div class="error-detail-row">
+            <span class="error-image-name">${this.escapeHtml(e.imageName)}</span>
+            <span class="error-message">${this.escapeHtml(e.error)}</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    document.getElementById('toggle-error-details')?.addEventListener('click', () => {
+      const details = summaryEl.querySelector('.error-summary-details');
+      const btn = document.getElementById('toggle-error-details');
+      if (details) {
+        const isHidden = details.classList.toggle('hidden');
+        if (btn) btn.textContent = isHidden ? 'Show Details' : 'Hide Details';
+      }
+    });
+  }
+
+  /**
+   * Reset processing UI for a new run
+   */
+  startNewRun() {
+    // Hide progress section
+    if (this.elements.progressSection) {
+      this.elements.progressSection.classList.add('hidden');
+    }
+
+    // Hide error summary if present
+    const errorSummary = document.getElementById('error-summary');
+    if (errorSummary) errorSummary.classList.add('hidden');
+
+    // Reset progress state
+    this.resetProgress();
+    this.resetPipelineStages();
+
+    // Restore button visibility
+    if (this.elements.newRunBtn) this.elements.newRunBtn.classList.add('hidden');
+    if (this.elements.cancelProcessingBtn) this.elements.cancelProcessingBtn.classList.remove('hidden');
+
+    // Clear selection and refresh
+    this.selectedImages.clear();
+    this.updateImageSelection();
+    this.loadSessionImages();
   }
 
   showError(message) {
@@ -1072,6 +1352,12 @@ class ProcessingManager {
 
       if (this.elements.dbLiveImages) {
         this.elements.dbLiveImages.textContent = liveResult.totalImages?.toLocaleString() || '0';
+      }
+
+      // Enable reset button if there's data in the database
+      const hasData = (result.data?.neo4j?.entities || 0) > 0;
+      if (this.elements.resetAndProcessBtn) {
+        this.elements.resetAndProcessBtn.disabled = !hasData;
       }
 
     } catch (error) {
@@ -1145,6 +1431,91 @@ class ProcessingManager {
       if (btn) {
         btn.disabled = false;
         btn.innerHTML = '<span class="btn-icon">💾</span> Create Backup';
+      }
+    }
+  }
+
+  // ============================================================================
+  // Reset & Reprocess
+  // ============================================================================
+
+  async resetAndProcess() {
+    const confirmed = confirm(
+      'WARNING: This will:\n\n' +
+      '1. Archive all live images to a timestamped S3 folder\n' +
+      '2. Create a backup of all database data\n' +
+      '3. DELETE all entities, relationships, and embeddings\n' +
+      '4. Clear the live images folder\n' +
+      '5. Reseed poster type definitions\n\n' +
+      'This cannot be undone (except by restoring the backup).\n\n' +
+      'Are you sure?'
+    );
+    if (!confirmed) return;
+
+    const btn = this.elements.resetAndProcessBtn;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-icon">⏳</span> Resetting...';
+    }
+
+    this.addDbLogEntry('Starting backup and reset...', 'info');
+
+    try {
+      const response = await fetch('/api/v1/posters/database/backup-and-reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': 'posters-api-key-2024'
+        },
+        body: JSON.stringify({ confirm: 'CONFIRM_RESET' })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error?.message || result.error || result.message || 'Reset failed');
+      }
+
+      if (result.data?.success) {
+        const { archive, backup, reset, seeded } = result.data;
+
+        if (archive && (archive.imagesCopied > 0 || archive.metadataCopied > 0)) {
+          this.addDbLogEntry(
+            `✓ Archived ${archive.imagesCopied} images and ${archive.metadataCopied} metadata files to ${archive.archivePath}`,
+            'success'
+          );
+        } else {
+          this.addDbLogEntry('No live images to archive', 'info');
+        }
+        this.addDbLogEntry(
+          `✓ Backup created: ${backup.stats.entities} entities, ${backup.stats.relationships} relationships, ${backup.stats.embeddings} embeddings`,
+          'success'
+        );
+        this.addDbLogEntry(
+          `✓ Database reset: removed ${reset.entitiesRemoved} entities, ${reset.relationshipsRemoved} relationships, ${reset.embeddingsRemoved} embeddings`,
+          'success'
+        );
+        this.addDbLogEntry(
+          `✓ Reseeded ${seeded.posterTypesCreated} poster types`,
+          'success'
+        );
+
+        // Refresh stats to reflect empty database
+        await this.loadDatabaseStats();
+
+        // Mark browse tab as stale
+        window.posterApp?.markBrowseStale();
+      } else {
+        throw new Error(result.error || 'Reset failed');
+      }
+    } catch (error) {
+      console.error('Reset failed:', error);
+      this.addDbLogEntry('✗ Reset failed: ' + error.message, 'error');
+      this.showError('Reset failed: ' + error.message);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🔄</span> Reset Database';
       }
     }
   }
@@ -1312,6 +1683,9 @@ class ProcessingManager {
         this.checkMigrationStatus();
         this.loadDatabaseStats();
         this.loadSessions();
+
+        // Mark browse tab as stale
+        window.posterApp?.markBrowseStale();
 
       } else {
         throw new Error(result.error || 'Migration failed');

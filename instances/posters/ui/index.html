@@ -144,12 +144,15 @@
               </select>
               <button type="button" id="new-session-btn" class="secondary-btn">+ New Session</button>
               <input type="text" id="new-session-name" class="session-name-input hidden" placeholder="Enter session name...">
+              <textarea id="new-session-desc" class="session-desc-input hidden" placeholder="Optional description..." rows="2"></textarea>
               <button type="button" id="create-session-btn" class="process-btn hidden">Create</button>
+              <button type="button" id="reprocess-session-btn" class="secondary-btn hidden">Reprocess</button>
               <button type="button" id="delete-session-btn" class="danger-btn" disabled>Delete Session</button>
             </div>
             <div class="session-stats">
               <span>Session images: <strong id="session-image-count">0</strong></span>
             </div>
+            <div id="session-description" class="session-description hidden"></div>
           </section>
         </div>
 
@@ -247,6 +250,32 @@
                 </select>
               </label>
             </div>
+
+            <!-- Consensus Mode -->
+            <div class="consensus-toggle-row">
+              <label class="checkbox-label">
+                <input type="checkbox" id="consensus-toggle">
+                Consensus Mode
+              </label>
+              <span class="consensus-hint">Run multiple models and merge results</span>
+            </div>
+
+            <div id="consensus-options" class="consensus-options hidden">
+              <div class="consensus-models-section">
+                <label>Models to Compare</label>
+                <div id="consensus-model-list" class="consensus-model-list">
+                  <p class="text-muted">Loading models...</p>
+                </div>
+              </div>
+              <label>
+                Agreement Threshold
+                <select id="consensus-agreement">
+                  <option value="0.5" selected>Majority (50%)</option>
+                  <option value="0.66">Two-thirds (66%)</option>
+                  <option value="1.0">Unanimous (100%)</option>
+                </select>
+              </label>
+            </div>
           </section>
 
           <section class="processing-section actions-section">
@@ -325,8 +354,12 @@
             <div class="progress-log" id="progress-log"></div>
           </div>
 
+          <!-- Error Summary (shown after processing if failures occurred) -->
+          <div id="error-summary" class="error-summary hidden"></div>
+
           <div class="progress-actions">
             <button type="button" id="cancel-processing-btn" class="secondary-btn">Cancel Processing</button>
+            <button type="button" id="new-run-btn" class="process-btn hidden">New Run</button>
           </div>
         </section>
       </div><!-- End Processing Tab -->
@@ -436,26 +469,28 @@
 
         <!-- Reset & Process Section -->
         <section class="processing-section reset-section">
-          <h3><span class="icon">⚠️</span> Reset & Reprocess</h3>
-          <p class="section-description">Backup all data, clear the database, then reprocess all images from S3</p>
+          <h3><span class="icon">⚠️</span> Reset Database</h3>
+          <p class="section-description">Archive live images, backup all data, then clear the database</p>
 
           <div class="reset-warning">
             <div class="warning-icon">⚠️</div>
             <div class="warning-content">
               <strong>Warning:</strong> This operation will:
               <ol>
-                <li>Create a backup of all existing data</li>
+                <li>Archive all live images and metadata to a timestamped folder in S3</li>
+                <li>Create a backup of all existing database data</li>
                 <li>Delete all entities, relationships, and embeddings</li>
-                <li>Process all images from S3 bucket</li>
+                <li>Clear the live images folder</li>
+                <li>Reseed poster type definitions</li>
               </ol>
             </div>
           </div>
 
           <div class="reset-controls">
             <button type="button" id="reset-and-process-btn" class="danger-btn" disabled>
-              <span class="btn-icon">🔄</span> Reset & Process All
+              <span class="btn-icon">🔄</span> Reset Database
             </button>
-            <span class="reset-hint">Requires images in S3 bucket</span>
+            <span class="reset-hint">Enabled when database has entities</span>
           </div>
         </section>
 

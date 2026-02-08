@@ -1190,6 +1190,146 @@ footer {
   justify-content: flex-end;
 }
 
+#new-run-btn {
+  background-color: var(--success-color);
+}
+
+#new-run-btn:hover {
+  background-color: #16a34a;
+}
+
+/* Error Summary */
+.error-summary {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-top: 12px;
+}
+
+.error-summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.error-summary-title {
+  color: var(--error-color);
+  font-weight: 600;
+}
+
+.error-summary-details {
+  margin-top: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.error-detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid #fecaca;
+  font-size: 0.85rem;
+}
+
+.error-detail-row:last-child {
+  border-bottom: none;
+}
+
+.error-image-name {
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.error-message {
+  color: var(--error-color);
+  text-align: right;
+  flex: 1;
+}
+
+/* Image Zoom Button (processing selector) */
+.image-thumbnail {
+  position: relative;
+}
+
+.image-zoom-btn {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 2;
+  padding: 0;
+  line-height: 1;
+}
+
+.image-card:hover .image-zoom-btn {
+  opacity: 1;
+}
+
+.image-zoom-btn:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+/* Session Description */
+.session-desc-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+  margin-top: 8px;
+}
+
+.session-description {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #f1f5f9;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Reprocess Button */
+#reprocess-session-btn {
+  background: #7c3aed;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.2s;
+}
+
+#reprocess-session-btn:hover {
+  background: #6d28d9;
+}
+
+#reprocess-session-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Preview Modal */
 .preview-modal-content {
   max-width: 1100px;
@@ -2553,6 +2693,116 @@ footer {
   min-width: auto;
 }
 
+/* Consensus Mode */
+.consensus-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.consensus-toggle-row .checkbox-label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.consensus-toggle-row .checkbox-label input {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.consensus-hint {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.consensus-options {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-left: 3px solid var(--primary-color);
+  background: #f8faff;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  transition: all 0.2s ease;
+}
+
+.consensus-options.hidden {
+  display: none;
+}
+
+.consensus-models-section label {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.consensus-model-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 6px;
+}
+
+.consensus-model-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.consensus-model-item:hover {
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.consensus-model-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.consensus-model-item .model-name {
+  flex: 1;
+  color: var(--text-primary);
+}
+
+.consensus-model-item .model-provider {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: var(--border-color);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.consensus-options > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  max-width: 250px;
+}
+
+.consensus-options > label select {
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  background: white;
+}
+
 /* Database Management Section */
 .database-section {
   background: #fef3c7;
@@ -3203,9 +3453,23 @@ a.type-link.type-badge:hover {
    Tutorial Overlay System
    ================================================ */
 
-/* Body class when tutorial is active */
-body.tutorial-active {
-  overflow: hidden;
+/* Highlighted element - elevated above the dark backdrop with readable background */
+.tutorial-highlighted {
+  position: relative !important;
+  z-index: 10000 !important;
+  border-radius: var(--radius);
+  box-shadow: 0 0 0 4px white;
+}
+
+/* Apply white background only to container elements, not buttons/inputs */
+.tutorial-highlighted:not(button):not(input):not(select):not(a) {
+  background: var(--card-background, white) !important;
+}
+
+/* Buttons keep their own background but get a glow to stand out */
+button.tutorial-highlighted,
+a.tutorial-highlighted {
+  box-shadow: 0 0 0 4px white, 0 0 12px rgba(37, 99, 235, 0.5);
 }
 
 /* Help button in workflow info */
@@ -3268,7 +3532,7 @@ body.tutorial-active {
 
 /* Spotlight cutout effect */
 .tutorial-spotlight {
-  position: absolute;
+  position: fixed;
   border-radius: var(--radius);
   box-shadow:
     0 0 0 9999px rgba(0, 0, 0, 0.7),
@@ -3281,7 +3545,7 @@ body.tutorial-active {
 
 /* Tooltip / explanation box */
 .tutorial-tooltip {
-  position: absolute;
+  position: fixed;
   background: white;
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg), 0 0 20px rgba(37, 99, 235, 0.2);
@@ -3441,4 +3705,262 @@ body.tutorial-active {
   .tutorial-next-btn {
     order: 1;
   }
+}
+
+/* ================================================
+   Tutorial Preview Illustrations
+   Inline mockups shown in the tooltip when the
+   actual page section is empty / not yet populated.
+   ================================================ */
+
+.tutorial-preview {
+  padding: 0 16px 12px;
+}
+
+/* Generic mock container */
+.tp-mock {
+  background: var(--background-color, #f8fafc);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius, 8px);
+  padding: 10px;
+  font-size: 0.82rem;
+  color: var(--text-primary, #1e293b);
+}
+
+.tp-mock-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tp-label {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #64748b);
+}
+
+/* Buttons */
+.tp-btn {
+  padding: 5px 12px;
+  border-radius: var(--radius, 6px);
+  font-weight: 600;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  border: 1px solid var(--border-color, #e2e8f0);
+  background: white;
+  color: var(--text-primary, #1e293b);
+}
+
+.tp-btn-accent {
+  background: var(--primary-color, #2563eb);
+  color: white;
+  border-color: var(--primary-color, #2563eb);
+}
+
+.tp-btn-danger {
+  background: var(--danger-color, #ef4444);
+  color: white;
+  border-color: var(--danger-color, #ef4444);
+}
+
+/* Select / dropdown */
+.tp-select {
+  flex: 1;
+  padding: 5px 10px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius, 6px);
+  background: white;
+  font-size: 0.82rem;
+}
+
+.tp-select-open {
+  border: 1px solid var(--primary-color, #2563eb);
+  border-radius: var(--radius, 6px);
+  overflow: hidden;
+}
+
+.tp-option {
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+.tp-option:last-child {
+  border-bottom: none;
+}
+
+.tp-option.tp-active {
+  background: var(--primary-color, #2563eb);
+  color: white;
+  font-weight: 600;
+}
+
+/* Input field */
+.tp-input {
+  flex: 1;
+  padding: 5px 10px;
+  border: 1px solid var(--primary-color, #2563eb);
+  border-radius: var(--radius, 6px);
+  background: white;
+  font-size: 0.82rem;
+  color: var(--text-primary, #1e293b);
+}
+
+/* File list rows */
+.tp-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  font-size: 0.8rem;
+}
+
+.tp-file-row:last-child {
+  border-bottom: none;
+}
+
+.tp-check {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-color, #cbd5e1);
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.tp-check.on {
+  background: var(--primary-color, #2563eb);
+  border-color: var(--primary-color, #2563eb);
+  position: relative;
+}
+
+.tp-check.on::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 3px;
+  width: 4px;
+  height: 7px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.tp-fname {
+  flex: 1;
+  color: var(--text-primary, #1e293b);
+}
+
+.tp-fsize {
+  color: var(--text-secondary, #94a3b8);
+  font-size: 0.75rem;
+}
+
+/* Progress bar */
+.tp-progress-bar {
+  height: 8px;
+  background: var(--border-color, #e2e8f0);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.tp-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-color, #2563eb), var(--success-color, #22c55e));
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+/* Thumbnail grid */
+.tp-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.tp-thumb {
+  border: 2px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius, 6px);
+  overflow: hidden;
+  text-align: center;
+}
+
+.tp-thumb.selected {
+  border-color: var(--primary-color, #2563eb);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+}
+
+.tp-thumb-img {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--border-color, #e2e8f0);
+  color: var(--text-secondary, #94a3b8);
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+.tp-thumb-name {
+  padding: 3px 2px;
+  font-size: 0.65rem;
+  color: var(--text-secondary, #64748b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Pipeline stages */
+.tp-pipeline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 8px;
+}
+
+.tp-stage {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--border-color, #e2e8f0);
+  color: var(--text-secondary, #64748b);
+  white-space: nowrap;
+}
+
+.tp-stage.done {
+  background: var(--success-color, #22c55e);
+  color: white;
+}
+
+.tp-stage.active {
+  background: var(--primary-color, #2563eb);
+  color: white;
+  animation: tpPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes tpPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.tp-connector {
+  width: 16px;
+  height: 2px;
+  background: var(--border-color, #cbd5e1);
+  flex-shrink: 0;
+}
+
+.tp-connector.done {
+  background: var(--success-color, #22c55e);
+}
+
+.tp-log-line {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  font-family: monospace;
+  color: var(--text-secondary, #64748b);
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 4px;
 }

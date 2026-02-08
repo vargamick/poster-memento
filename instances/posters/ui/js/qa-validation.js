@@ -659,6 +659,7 @@ export class QAValidationManager {
     try {
       await this.api.applyQAFix(entityId, field, suggestion.suggestedValue);
       this.addLogEntry(`Applied fix: ${field} for ${this.formatEntityName(entityId)}`, 'success');
+      window.posterApp?.markBrowseStale();
 
       // Remove from view
       const row = this.elements.resultsTbody.querySelector(`[data-row-id="${rowId}"]`);
@@ -713,6 +714,7 @@ export class QAValidationManager {
       if (fixes.length > 0) {
         await this.api.applyQAFixBatch(fixes);
         this.addLogEntry(`Applied ${fixes.length} fixes`, 'success');
+        window.posterApp?.markBrowseStale();
 
         // Remove fixed rows
         for (const rowId of this.selectedResults) {

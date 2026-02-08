@@ -19,9 +19,10 @@ import { cleanPosterData } from '../../image-processor/utils/posterDataCleaner.j
 import { ArtistSplitter, type ValidatedArtist, splitAndValidateArtists } from '../../image-processor/utils/artistSplitter.js';
 import { splitVenueDate } from '../../image-processor/utils/venueDateSplitter.js';
 import { MusicBrainzClient } from '../../qa-validation/clients/MusicBrainzClient.js';
-import type { SessionProcessingResult, ProcessingResultMetadata, PosterEntity } from '../../image-processor/types.js';
+import type { SessionProcessingResult, ProcessingResultMetadata, PosterEntity, SessionInfo } from '../../image-processor/types.js';
 import { reviewExtractedData, applyCorrections, shouldProcessEntity, type ReviewResult } from '../../image-processor/ReviewPhase.js';
 import { VisionModelFactory } from '../../image-processor/VisionModelFactory.js';
+import { ConsensusProcessor } from '../../image-processor/consensus/ConsensusProcessor.js';
 
 // ============================================================================
 // Entity Creation Configuration
@@ -114,7 +115,7 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
    * POST /sessions - Create a new session
    */
   router.post('/', asyncHandler(async (req, res) => {
-    const { name } = req.body;
+    const { name, description } = req.body;
 
     if (!name || typeof name !== 'string') {
       throw new ValidationError('Session name is required');
@@ -123,7 +124,7 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
     const storage = await getStorageService();
 
     try {
-      const session = await storage.createSession(name);
+      const session = await storage.createSession(name, description);
       logger.info('Session created', { sessionId: session.sessionId, name: session.name });
       res.status(201).json({ success: true, session });
     } catch (error: unknown) {
@@ -262,7 +263,8 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
       imageHashes,
       modelKey = 'minicpm-v-ollama',
       batchSize = 5,
-      enableReview = false  // Layer 2: LLM self-review (disabled by default for performance)
+      enableReview = false,  // Layer 2: LLM self-review (disabled by default for performance)
+      consensus                // Consensus mode: { enabled, models, minAgreementRatio, parallel }
     } = req.body;
 
     const storage = await getStorageService();
@@ -286,10 +288,13 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
       throw new ValidationError('No images to process');
     }
 
+    const useConsensus = consensus?.enabled && Array.isArray(consensus.models) && consensus.models.length >= 2;
+
     logger.info('Processing session images', {
       sessionId,
       imageCount: images.length,
-      modelKey
+      modelKey,
+      consensus: useConsensus ? { models: consensus.models, minAgreementRatio: consensus.minAgreementRatio } : false
     });
 
     const results: SessionProcessingResult[] = [];
@@ -307,14 +312,50 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
             const tempPath = await storage.downloadSessionImageToTemp(sessionId, image.hash);
 
             try {
-              // Process with vision model - skipStorage since we handle storage ourselves
-              const processingResult = await processor.processImage(tempPath, { modelKey, skipStorage: true });
+              let posterEntity: PosterEntity;
+              let consensusMeta: { modelsUsed: string[]; agreementScore: number } | undefined;
 
-              if (!processingResult.success || !processingResult.entity) {
-                throw new Error(processingResult.error || 'Processing failed');
+              if (useConsensus) {
+                // Consensus mode: run multiple models and merge
+                const consensusProcessor = new ConsensusProcessor({
+                  models: consensus.models,
+                  minAgreementRatio: consensus.minAgreementRatio ?? 0.5,
+                  parallel: consensus.parallel ?? true,
+                  modelTimeoutMs: consensus.modelTimeoutMs ?? 120000,
+                });
+                const consensusResult = await consensusProcessor.processWithConsensus(tempPath);
+
+                if (!consensusResult.success || !consensusResult.entity) {
+                  throw new Error('Consensus processing failed - no models returned results');
+                }
+
+                posterEntity = consensusResult.entity as PosterEntity;
+
+                // ConsensusProcessor merges vision model outputs but doesn't set
+                // required entity fields - set them here like PosterProcessor does
+                posterEntity.name = posterEntity.name || `poster_${image.hash}`;
+                posterEntity.entityType = 'Poster';
+
+                consensusMeta = {
+                  modelsUsed: consensusResult.modelsUsed,
+                  agreementScore: consensusResult.agreementScore,
+                };
+                logger.info('Consensus result', {
+                  hash: image.hash,
+                  modelsUsed: consensusResult.modelsUsed,
+                  agreementScore: consensusResult.agreementScore.toFixed(2),
+                  overallConfidence: consensusResult.overallConfidence.toFixed(2),
+                });
+              } else {
+                // Single model mode
+                const processingResult = await processor.processImage(tempPath, { modelKey, skipStorage: true });
+
+                if (!processingResult.success || !processingResult.entity) {
+                  throw new Error(processingResult.error || 'Processing failed');
+                }
+
+                posterEntity = processingResult.entity;
               }
-
-              let posterEntity = processingResult.entity;
 
               // Clean and normalize the entity data with enhanced validation
               const { entity: cleanedEntity, extractionNotes, fieldConfidences, rejectedFields } = cleanPosterData(posterEntity);
@@ -452,7 +493,8 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
                 title: posterEntity.title,
                 extractedData: posterEntity as unknown as Record<string, unknown>,
                 modelKey: modelKey,
-                processedAt: new Date().toISOString()
+                processedAt: new Date().toISOString(),
+                sourceSessionId: sessionId
               };
               await storage.storeLiveMetadata(image.hash, metadata);
 
@@ -470,7 +512,8 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
                 entityName: posterEntity.name,
                 title: posterEntity.title,
                 movedToLive: true,
-                processingTimeMs
+                processingTimeMs,
+                ...(consensusMeta && { consensus: consensusMeta })
               } as SessionProcessingResult;
             } finally {
               await storage.cleanupTemp(tempPath);
@@ -515,7 +558,186 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
     });
   }));
 
+  /**
+   * POST /sessions/:sessionId/reprocess - Reprocess images from a completed session
+   *
+   * Finds all live images that originated from this session, cleans up their
+   * graph entities (poster, event, and orphaned artists/venues), copies the
+   * images into a new session, and removes the live copies.
+   */
+  router.post('/:sessionId/reprocess', asyncHandler(async (req, res) => {
+    const { sessionId } = req.params;
+    const storage = await getStorageService();
+
+    // Verify session exists
+    const session = await storage.getSession(sessionId);
+    if (!session) {
+      throw new NotFoundError(`Session not found: ${sessionId}`);
+    }
+
+    // Find all live images that originated from this session
+    const liveImages = await storage.getLiveImagesBySession(sessionId);
+    if (liveImages.length === 0) {
+      throw new ValidationError('No processed images found for this session. Images may not have sourceSessionId metadata.');
+    }
+
+    logger.info('Starting reprocess', {
+      sourceSessionId: sessionId,
+      imageCount: liveImages.length,
+      entityNames: liveImages.map(img => img.entityName)
+    });
+
+    // Step 1: Graph cleanup for each poster entity
+    const cleanupResults: Array<{ entityName: string; deleted: string[]; errors: string[] }> = [];
+
+    for (const img of liveImages) {
+      const result = await cleanupPosterGraph(knowledgeGraphManager, img.entityName);
+      cleanupResults.push(result);
+    }
+
+    // Step 2: Create a new session for reprocessing
+    const newSessionName = `${session.name} (reprocess)`;
+    let newSession: SessionInfo;
+    try {
+      newSession = await storage.createSession(newSessionName, `Reprocessing from session: ${sessionId}`);
+    } catch (error: unknown) {
+      // If session name already exists, add timestamp
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      newSession = await storage.createSession(
+        `${session.name} (reprocess ${ts})`,
+        `Reprocessing from session: ${sessionId}`
+      );
+    }
+
+    // Step 3: Copy live images to the new session
+    const hashes = liveImages.map(img => img.hash);
+    await storage.copyLiveImagesToSession(hashes, newSession.sessionId);
+
+    // Step 4: Remove the live copies
+    await storage.removeLiveImagesByHash(hashes);
+
+    // Refresh session info to get updated image count
+    const updatedNewSession = await storage.getSession(newSession.sessionId);
+
+    logger.info('Reprocess complete', {
+      sourceSessionId: sessionId,
+      newSessionId: newSession.sessionId,
+      imagesCloned: hashes.length,
+      graphCleanup: cleanupResults
+    });
+
+    res.json({
+      success: true,
+      sourceSessionId: sessionId,
+      newSession: updatedNewSession || newSession,
+      imagesCloned: hashes.length,
+      graphCleanup: cleanupResults
+    });
+  }));
+
   return router;
+}
+
+/**
+ * Clean up graph entities for a poster being reprocessed.
+ * Deletes the poster entity, its event, and any orphaned artists/venues.
+ */
+async function cleanupPosterGraph(
+  knowledgeGraphManager: KnowledgeGraphManager,
+  posterEntityName: string
+): Promise<{ entityName: string; deleted: string[]; errors: string[] }> {
+  const deleted: string[] = [];
+  const errors: string[] = [];
+
+  try {
+    // Get all relationships for this poster
+    const graph = await knowledgeGraphManager.openNodes([posterEntityName]);
+    if (graph.entities.length === 0) {
+      errors.push(`Poster entity not found: ${posterEntityName}`);
+      return { entityName: posterEntityName, deleted, errors };
+    }
+
+    // Collect connected entity names by relationship type
+    const connectedEntities: Array<{ name: string; relationType: string }> = [];
+
+    for (const rel of graph.relations) {
+      if (rel.from === posterEntityName) {
+        connectedEntities.push({ name: rel.to, relationType: rel.relationType });
+      }
+      if (rel.to === posterEntityName) {
+        connectedEntities.push({ name: rel.from, relationType: rel.relationType });
+      }
+    }
+
+    // Find the event entity (connected via ADVERTISES_EVENT)
+    const eventEntity = connectedEntities.find(e => e.relationType === 'ADVERTISES_EVENT');
+
+    // If there's an event, get its relationships too to find connected artists/venues through the event
+    let eventRelatedEntities: Array<{ name: string; relationType: string }> = [];
+    if (eventEntity) {
+      const eventGraph = await knowledgeGraphManager.openNodes([eventEntity.name]);
+      for (const rel of eventGraph.relations) {
+        if (rel.from === eventEntity.name && rel.from !== posterEntityName) {
+          eventRelatedEntities.push({ name: rel.to, relationType: rel.relationType });
+        }
+        if (rel.to === eventEntity.name && rel.from !== posterEntityName) {
+          eventRelatedEntities.push({ name: rel.from, relationType: rel.relationType });
+        }
+      }
+    }
+
+    // Delete the poster entity first (this also removes its relationships)
+    await knowledgeGraphManager.deleteEntities([posterEntityName]);
+    deleted.push(posterEntityName);
+
+    // Delete the event entity if it exists
+    if (eventEntity) {
+      await knowledgeGraphManager.deleteEntities([eventEntity.name]);
+      deleted.push(eventEntity.name);
+    }
+
+    // Check artists and venues for orphan status (no remaining relationships)
+    // Combine entities connected directly to poster and through event
+    const candidateOrphans = new Set<string>();
+    for (const e of connectedEntities) {
+      if (e.relationType !== 'ADVERTISES_EVENT' && e.relationType !== 'HAS_TYPE') {
+        candidateOrphans.add(e.name);
+      }
+    }
+    for (const e of eventRelatedEntities) {
+      candidateOrphans.add(e.name);
+    }
+
+    // Check each candidate for orphan status
+    for (const entityName of candidateOrphans) {
+      try {
+        const entityGraph = await knowledgeGraphManager.openNodes([entityName]);
+
+        if (entityGraph.entities.length === 0) {
+          // Already deleted (maybe by cascading delete)
+          continue;
+        }
+
+        // Count remaining relationships (after poster and event were deleted)
+        const remainingRelations = entityGraph.relations.filter(
+          r => r.from !== posterEntityName && r.to !== posterEntityName &&
+               (!eventEntity || (r.from !== eventEntity.name && r.to !== eventEntity.name))
+        );
+
+        if (remainingRelations.length === 0) {
+          // Orphaned - delete it
+          await knowledgeGraphManager.deleteEntities([entityName]);
+          deleted.push(entityName);
+        }
+      } catch (err) {
+        errors.push(`Failed to check orphan status of ${entityName}: ${err}`);
+      }
+    }
+  } catch (err) {
+    errors.push(`Failed to clean up graph for ${posterEntityName}: ${err}`);
+  }
+
+  return { entityName: posterEntityName, deleted, errors };
 }
 
 /**

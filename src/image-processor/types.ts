@@ -157,6 +157,7 @@ export interface PosterEntity {
 export interface SessionInfo {
   sessionId: string;       // e.g., "2026-02-05_concert-posters"
   name: string;            // User-friendly name
+  description?: string;    // Optional user-provided description
   created: string;         // ISO timestamp
   imageCount: number;
   totalSizeBytes: number;
@@ -198,6 +199,15 @@ export interface LiveStats {
 }
 
 /**
+ * Result of archiving live images to a timestamped folder
+ */
+export interface ArchiveResult {
+  archivePath: string;       // e.g., "archive/2026-02-08T14-30-00Z/"
+  imagesCopied: number;
+  metadataCopied: number;
+}
+
+/**
  * Processing result stored in live/metadata/
  */
 export interface ProcessingResultMetadata {
@@ -207,6 +217,7 @@ export interface ProcessingResultMetadata {
   extractedData: Record<string, unknown>;
   modelKey: string;
   processedAt: string;
+  sourceSessionId?: string;
 }
 
 /**

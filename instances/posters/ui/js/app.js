@@ -29,6 +29,9 @@ class PosterApp {
     // Filter state for clickable links (artist, venue, type)
     this.activeFilter = null; // { type: 'artist'|'venue'|'posterType', value: string }
 
+    // Stale flag: set when other tabs modify data, triggers refresh on browse tab switch
+    this.browseStale = false;
+
     // API client
     this.api = createAPI();
 
@@ -175,6 +178,13 @@ class PosterApp {
   }
 
   /**
+   * Mark browse data as stale (called by other tabs after data changes)
+   */
+  markBrowseStale() {
+    this.browseStale = true;
+  }
+
+  /**
    * Update the filter bar UI to reflect current state
    */
   updateFilterBar() {
@@ -277,6 +287,10 @@ class PosterApp {
     // Show selected tab content
     if (tab === 'browse') {
       this.elements.browseTab?.classList.remove('hidden');
+      if (this.browseStale) {
+        this.browseStale = false;
+        this.loadPosters();
+      }
     } else if (tab === 'processing') {
       this.elements.processingTab?.classList.remove('hidden');
 
@@ -915,9 +929,17 @@ class PosterApp {
   }
 
   /**
-   * Render artists column content with clickable links
+   * Render artists column content with clickable links.
+   * Prefers enriched artistRelationships data (from graph) over flat fields.
    */
   renderArtists(poster) {
+    // Use enriched artist relationship data if available
+    const artistRels = poster.artistRelationships;
+    if (artistRels && artistRels.length > 0) {
+      return this.renderArtistsFromRelationships(artistRels);
+    }
+
+    // Fallback to flat fields / observations
     const parsed = this.parseObservations(poster);
     const parts = [];
 
@@ -954,6 +976,34 @@ class PosterApp {
 
       if (supporting.length > 2) {
         parts.push(`<span class="more-artists">+${supporting.length - 2} more</span>`);
+      }
+    }
+
+    return parts.length > 0 ? parts.join('<br>') : '-';
+  }
+
+  /**
+   * Render artists from enriched graph relationship data.
+   * Each artist is an individual clickable entity link.
+   */
+  renderArtistsFromRelationships(artistRels) {
+    const headliners = artistRels.filter(r => r.relationType === 'HEADLINED_ON');
+    const supporting = artistRels.filter(r => r.relationType === 'PERFORMED_ON');
+    const parts = [];
+
+    for (const rel of headliners) {
+      parts.push(`<a href="#" class="entity-link artist-link headliner" data-type="artist" data-value="${this.escapeHtml(rel.displayName)}">${this.escapeHtml(rel.displayName)}</a>`);
+    }
+
+    if (supporting.length > 0) {
+      const displaySupporting = supporting.slice(0, 3);
+      const supportingLinks = displaySupporting.map(rel =>
+        `<a href="#" class="entity-link artist-link supporting" data-type="artist" data-value="${this.escapeHtml(rel.displayName)}">${this.escapeHtml(rel.displayName)}</a>`
+      ).join(', ');
+      parts.push(`<span class="supporting-group">${supportingLinks}</span>`);
+
+      if (supporting.length > 3) {
+        parts.push(`<span class="more-artists">+${supporting.length - 3} more</span>`);
       }
     }
 

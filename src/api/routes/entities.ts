@@ -125,7 +125,9 @@ export function createEntityRoutes(entityService: EntityService, storageProvider
         logger.debug('Poster entities to enrich:', posterEntities.length);
         if (posterEntities.length > 0) {
           try {
-            const enrichedPosters = await posterTypeQueryService.enrichPostersWithTypes(posterEntities);
+            let enrichedPosters = await posterTypeQueryService.enrichPostersWithTypes(posterEntities);
+            // Also enrich with artist relationships
+            enrichedPosters = await posterTypeQueryService.enrichPostersWithArtists(enrichedPosters);
             logger.debug('Enriched posters:', enrichedPosters.length, 'sample typeRelationships:', enrichedPosters[0]?.typeRelationships);
             const enrichedMap = new Map(enrichedPosters.map(p => [p.name, p]));
             entities = entities.map(e =>
@@ -189,7 +191,9 @@ export function createEntityRoutes(entityService: EntityService, storageProvider
         logger.info('[entities route] Poster entities to enrich:', posterEntities.length);
         if (posterEntities.length > 0) {
           try {
-            const enrichedPosters = await posterTypeQueryService.enrichPostersWithTypes(posterEntities);
+            let enrichedPosters = await posterTypeQueryService.enrichPostersWithTypes(posterEntities);
+            // Also enrich with artist relationships
+            enrichedPosters = await posterTypeQueryService.enrichPostersWithArtists(enrichedPosters);
             logger.info('[entities route] Enriched posters:', enrichedPosters.length, 'sample typeRelationships:', JSON.stringify(enrichedPosters[0]?.typeRelationships?.slice(0, 2)));
             const enrichedMap = new Map(enrichedPosters.map(p => [p.name, p]));
             entities = entities.map(e =>
@@ -296,10 +300,11 @@ export function createEntityRoutes(entityService: EntityService, storageProvider
 
     let entity = result.data;
 
-    // Enrich Poster entity with HAS_TYPE relationships
+    // Enrich Poster entity with HAS_TYPE and artist relationships
     if (posterTypeQueryService && entity?.entityType === 'Poster') {
       try {
-        const enrichedPosters = await posterTypeQueryService.enrichPostersWithTypes([entity]);
+        let enrichedPosters = await posterTypeQueryService.enrichPostersWithTypes([entity]);
+        enrichedPosters = await posterTypeQueryService.enrichPostersWithArtists(enrichedPosters);
         if (enrichedPosters.length > 0) {
           entity = enrichedPosters[0];
         }

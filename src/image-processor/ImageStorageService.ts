@@ -12,6 +12,7 @@ import {
   SessionImage,
   LiveImage,
   LiveStats,
+  ArchiveResult,
   ProcessingResultMetadata
 } from './types.js';
 
@@ -400,7 +401,7 @@ export class ImageStorageService {
   /**
    * Create a new upload session
    */
-  async createSession(name: string): Promise<SessionInfo> {
+  async createSession(name: string, description?: string): Promise<SessionInfo> {
     const sessionId = this.generateSessionId(name);
     const sessionKey = `sessions/${sessionId}/session.json`;
 
@@ -418,6 +419,7 @@ export class ImageStorageService {
     const sessionInfo: SessionInfo = {
       sessionId,
       name,
+      ...(description && { description }),
       created: new Date().toISOString(),
       imageCount: 0,
       totalSizeBytes: 0
@@ -875,6 +877,65 @@ export class ImageStorageService {
   }
 
   // ============================================================================
+  // Live Folder Archiving
+  // ============================================================================
+
+  /**
+   * Archive all live images and metadata to a timestamped folder, then clear the live folder.
+   * Uses server-side copies (copyObject) so no data is downloaded/re-uploaded.
+   */
+  async archiveLiveImages(): Promise<ArchiveResult> {
+    const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\.\d{3}Z$/, 'Z');
+    const archivePrefix = `archive/${timestamp}/`;
+
+    const imageKeys = await this.listAllObjectKeys('live/images/');
+    const metadataKeys = await this.listAllObjectKeys('live/metadata/');
+
+    if (imageKeys.length === 0 && metadataKeys.length === 0) {
+      return { archivePath: archivePrefix, imagesCopied: 0, metadataCopied: 0 };
+    }
+
+    // Copy images to archive (batched for performance)
+    const copyBatch = async (keys: string[]) => {
+      const batchSize = 10;
+      for (let i = 0; i < keys.length; i += batchSize) {
+        const batch = keys.slice(i, i + batchSize);
+        await Promise.all(batch.map(async (key) => {
+          const newKey = key.replace('live/', archivePrefix);
+          const copySource = `/${this.bucket}/${key}`;
+          await this.minio.copyObject(this.bucket, newKey, copySource);
+        }));
+      }
+    };
+
+    await copyBatch(imageKeys);
+    await copyBatch(metadataKeys);
+
+    // Bulk delete originals from live folder
+    const allKeys = [...imageKeys, ...metadataKeys];
+    await this.minio.removeObjects(this.bucket, allKeys);
+
+    return {
+      archivePath: archivePrefix,
+      imagesCopied: imageKeys.length,
+      metadataCopied: metadataKeys.length
+    };
+  }
+
+  /**
+   * List all object keys under a given prefix
+   */
+  private async listAllObjectKeys(prefix: string): Promise<string[]> {
+    return new Promise((resolve, reject) => {
+      const keys: string[] = [];
+      const stream = this.minio.listObjects(this.bucket, prefix, true);
+      stream.on('data', (obj) => { if (obj.name) keys.push(obj.name); });
+      stream.on('end', () => resolve(keys));
+      stream.on('error', reject);
+    });
+  }
+
+  // ============================================================================
   // Processing Result Storage (Live Metadata)
   // ============================================================================
 
@@ -915,6 +976,76 @@ export class ImageStorageService {
       });
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Get all live images that originated from a specific session
+   */
+  async getLiveImagesBySession(sessionId: string): Promise<Array<{ hash: string; entityName: string; key: string; filename: string }>> {
+    const results: Array<{ hash: string; entityName: string; key: string; filename: string }> = [];
+    const metadataKeys = await this.listAllObjectKeys('live/metadata/');
+
+    for (const metaKey of metadataKeys) {
+      try {
+        const hash = metaKey.replace('live/metadata/', '').replace('.json', '');
+        const metadata = await this.getLiveMetadata(hash);
+        if (metadata && metadata.sourceSessionId === sessionId) {
+          // Find the corresponding image key
+          const imageKeys = await this.listAllObjectKeys(`live/images/${hash}-`);
+          const imageKey = imageKeys[0];
+          const filename = imageKey ? imageKey.replace(`live/images/${hash}-`, '') : '';
+
+          results.push({
+            hash,
+            entityName: metadata.entityName,
+            key: imageKey || '',
+            filename
+          });
+        }
+      } catch {
+        // Skip unreadable metadata
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Copy live images back into a session for reprocessing
+   */
+  async copyLiveImagesToSession(hashes: string[], targetSessionId: string): Promise<void> {
+    for (const hash of hashes) {
+      const imageKeys = await this.listAllObjectKeys(`live/images/${hash}-`);
+      if (imageKeys.length === 0) continue;
+
+      const sourceKey = imageKeys[0];
+      const filename = sourceKey.replace(`live/images/${hash}-`, '');
+      const destKey = `sessions/${targetSessionId}/images/${hash}-${filename}`;
+
+      // Server-side copy
+      const copySource = `/${this.bucket}/${sourceKey}`;
+      await this.minio.copyObject(this.bucket, destKey, copySource);
+    }
+  }
+
+  /**
+   * Remove live images and their metadata by hash
+   */
+  async removeLiveImagesByHash(hashes: string[]): Promise<void> {
+    const keysToRemove: string[] = [];
+
+    for (const hash of hashes) {
+      // Find image keys
+      const imageKeys = await this.listAllObjectKeys(`live/images/${hash}-`);
+      keysToRemove.push(...imageKeys);
+
+      // Add metadata key
+      keysToRemove.push(`live/metadata/${hash}.json`);
+    }
+
+    if (keysToRemove.length > 0) {
+      await this.minio.removeObjects(this.bucket, keysToRemove);
     }
   }
 

@@ -944,8 +944,18 @@ export function createPosterRoutes(knowledgeGraphManager: KnowledgeGraphManager)
     logger.info('Starting backup and reset operation');
 
     try {
-      // Step 1: Backup
-      logger.info('Step 1: Creating backup...');
+      // Step 1: Archive live images from MinIO
+      logger.info('Step 1: Archiving live images...');
+      const storage = await getStorageService();
+      const archiveResult = await storage.archiveLiveImages();
+      logger.info('Live images archived', {
+        archivePath: archiveResult.archivePath,
+        imagesCopied: archiveResult.imagesCopied,
+        metadataCopied: archiveResult.metadataCopied
+      });
+
+      // Step 2: Backup
+      logger.info('Step 2: Creating backup...');
       const backupConfig = getBackupConfigFromEnv();
       const backup = new DatabaseBackup(backupConfig);
       const backupResult = await backup.backup();
@@ -956,8 +966,8 @@ export function createPosterRoutes(knowledgeGraphManager: KnowledgeGraphManager)
         postgresEmbeddings: backupResult.postgresStats.embeddings
       });
 
-      // Step 2: Reset
-      logger.info('Step 2: Resetting databases...');
+      // Step 3: Reset
+      logger.info('Step 3: Resetting databases...');
       const resetConfig = getResetConfigFromEnv(true); // Skip interactive confirmation
       const resetter = new DatabaseResetter(resetConfig);
       const resetResult = await resetter.reset();
@@ -970,8 +980,8 @@ export function createPosterRoutes(knowledgeGraphManager: KnowledgeGraphManager)
       // Clear any cached processing state
       resetProcessingState();
 
-      // Step 3: Reseed PosterType entities
-      logger.info('Step 3: Reseeding PosterType entities...');
+      // Step 4: Reseed PosterType entities
+      logger.info('Step 4: Reseeding PosterType entities...');
       resetPosterTypeSeedCache(); // Clear the cache so seeding actually runs
       const seedResult = await ensurePosterTypesSeeded(knowledgeGraphManager, true);
       logger.info('Seeding complete', {
@@ -981,6 +991,11 @@ export function createPosterRoutes(knowledgeGraphManager: KnowledgeGraphManager)
       res.json({
         data: {
           success: true,
+          archive: {
+            archivePath: archiveResult.archivePath,
+            imagesCopied: archiveResult.imagesCopied,
+            metadataCopied: archiveResult.metadataCopied
+          },
           backup: {
             timestamp: backupResult.timestamp,
             neo4jBackupPath: backupResult.neo4jBackupPath,
