@@ -16,7 +16,7 @@ import { createPosterProcessor, PosterProcessor } from '../../image-processor/Po
 import { KnowledgeGraphManager, type Relation } from '../../KnowledgeGraphManager.js';
 import { logger } from '../../utils/logger.js';
 import { ensurePosterTypesSeeded } from '../../utils/ensurePosterTypes.js';
-import { cleanPosterData } from '../../image-processor/utils/posterDataCleaner.js';
+import { cleanPosterData, splitMultiDateString, normalizeDate, extractYear } from '../../image-processor/utils/posterDataCleaner.js';
 import { ArtistSplitter, type ValidatedArtist, splitAndValidateArtists } from '../../image-processor/utils/artistSplitter.js';
 import { splitVenueDate } from '../../image-processor/utils/venueDateSplitter.js';
 import { MusicBrainzClient } from '../../qa-validation/clients/MusicBrainzClient.js';
@@ -695,6 +695,276 @@ export function createSessionRoutes(knowledgeGraphManager: KnowledgeGraphManager
       newSession: updatedNewSession || newSession,
       imagesCloned: hashes.length,
       graphCleanup: cleanupResults
+    });
+  }));
+
+  /**
+   * POST /sessions/:sessionId/repair-dates - Re-parse dates on existing posters
+   *
+   * Finds all live posters from this session whose extraction_notes contain
+   * "Date could not be parsed", re-parses the raw date strings using improved
+   * logic (ordinal stripping, multi-date splitting), updates the poster entity,
+   * and creates/links missing Show entities. No vision model calls needed.
+   */
+  router.post('/:sessionId/repair-dates', asyncHandler(async (req, res) => {
+    const { sessionId } = req.params;
+    const storage = await getStorageService();
+
+    const session = await storage.getSession(sessionId);
+    if (!session) {
+      throw new NotFoundError(`Session not found: ${sessionId}`);
+    }
+
+    // Find all live images from this session
+    const liveImages = await storage.getLiveImagesBySession(sessionId);
+    if (liveImages.length === 0) {
+      throw new ValidationError('No processed images found for this session');
+    }
+
+    logger.info('Starting date repair', { sessionId, imageCount: liveImages.length });
+
+    const details: Array<{
+      entityName: string;
+      status: 'repaired' | 'skipped' | 'error';
+      rawDate?: string;
+      parsedDates?: string[];
+      showsCreated?: number;
+      message?: string;
+    }> = [];
+    let totalShowsCreated = 0;
+
+    for (const image of liveImages) {
+      const entityName = image.entityName;
+      if (!entityName) {
+        details.push({ entityName: image.hash, status: 'skipped', message: 'No entity name' });
+        continue;
+      }
+
+      try {
+        // Load the poster entity and its relationships
+        const graph = await knowledgeGraphManager.openNodes([entityName]);
+        const entity = graph.entities.find(e => e.name === entityName);
+        if (!entity) {
+          details.push({ entityName, status: 'skipped', message: 'Entity not found' });
+          continue;
+        }
+
+        // Look for "Date could not be parsed" in observations
+        const dateNote = entity.observations.find(obs =>
+          obs.includes('Date could not be parsed:')
+        );
+        // Also check for the "Extraction notes:" prefixed variant
+        const extractionNote = entity.observations.find(obs =>
+          obs.includes('Extraction notes:') && obs.includes('Date could not be parsed:')
+        );
+        const noteToUse = dateNote || extractionNote;
+
+        if (!noteToUse) {
+          details.push({ entityName, status: 'skipped', message: 'No unparsed date found' });
+          continue;
+        }
+
+        // Extract the raw date string from the note
+        const rawDateMatch = noteToUse.match(/Date could not be parsed:\s*"([^"]+)"/);
+        if (!rawDateMatch) {
+          details.push({ entityName, status: 'skipped', message: 'Could not extract raw date from note' });
+          continue;
+        }
+
+        const rawDate = rawDateMatch[1];
+
+        // Split multi-date strings and normalize each
+        const splitDates = splitMultiDateString(rawDate);
+        const parsedDates: string[] = [];
+
+        for (const { dateStr } of splitDates) {
+          const normalized = normalizeDate(dateStr);
+          if (normalized) {
+            parsedDates.push(normalized);
+          }
+        }
+
+        if (parsedDates.length === 0) {
+          details.push({ entityName, status: 'skipped', rawDate, message: 'Still could not parse dates' });
+          continue;
+        }
+
+        // Extract headliner, venue, year from existing observations
+        const headliner = entity.observations.find(o => o.startsWith('Headliner:'))?.replace('Headliner: ', '').trim();
+        const venueName = entity.observations.find(o => o.startsWith('Venue:'))?.replace('Venue: ', '').trim();
+        const yearObs = entity.observations.find(o => o.startsWith('Year:'));
+        const city = entity.observations.find(o => o.startsWith('City:'))?.replace('City: ', '').trim();
+        const posterType = entity.observations.find(o => o.startsWith('Poster type:'))?.replace('Poster type: ', '').trim();
+        let year = yearObs ? parseInt(yearObs.replace('Year: ', ''), 10) : null;
+
+        // Try extracting year from the parsed dates if we don't have one
+        if (!year) {
+          for (const d of parsedDates) {
+            const y = extractYear(d);
+            if (y) { year = y; break; }
+          }
+        }
+        // Try extracting from original raw date
+        if (!year) {
+          year = extractYear(rawDate);
+        }
+
+        // Find existing event entity connected to this poster
+        const eventRel = graph.relations.find(r =>
+          r.from === entityName && r.relationType === 'ADVERTISES_EVENT'
+        );
+        const eventName = eventRel?.to;
+
+        // Create Show entities and relationships
+        const artistSlug = headliner
+          ? headliner.toLowerCase().replace(/[^a-z0-9]/g, '_')
+          : 'unknown';
+        const venueSlug = venueName
+          ? venueName.toLowerCase().replace(/[^a-z0-9]/g, '_')
+          : 'none';
+
+        const now = Date.now();
+        const relations: Relation[] = [];
+        let showsCreated = 0;
+
+        for (let i = 0; i < parsedDates.length; i++) {
+          const parsedDate = parsedDates[i];
+          const dateSlug = parsedDate.replace(/\//g, '-').replace(/[^a-z0-9-]/gi, '_').toLowerCase();
+          const showId = `show_${artistSlug}_${venueSlug}_${dateSlug}`;
+
+          const showObservations: string[] = [
+            `Date: ${parsedDate}`,
+            year ? `Year: ${year}` : '',
+            headliner ? `Headliner: ${headliner}` : '',
+            venueName ? `Venue: ${venueName}` : '',
+            city ? `City: ${city}` : '',
+            posterType ? `Type: ${posterType}` : '',
+            parsedDates.length > 1 ? `Show ${i + 1} of ${parsedDates.length}` : '',
+          ].filter(o => o);
+
+          try {
+            await knowledgeGraphManager.createEntities([{
+              name: showId,
+              entityType: 'Show',
+              observations: showObservations,
+            }]);
+          } catch {
+            // Entity might already exist
+          }
+
+          // Poster → ADVERTISES_SHOW → Show
+          relations.push({
+            from: entityName,
+            to: showId,
+            relationType: 'ADVERTISES_SHOW',
+            metadata: { createdAt: now, updatedAt: now },
+          });
+
+          // Show → HELD_AT → Venue
+          if (venueName) {
+            const venueEntityName = `venue_${venueName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+            relations.push({
+              from: showId,
+              to: venueEntityName,
+              relationType: 'HELD_AT',
+              metadata: { createdAt: now, updatedAt: now },
+            });
+          }
+
+          // Headliner → PERFORMS_IN → Show
+          if (headliner) {
+            const headlinerEntityName = `artist_${headliner.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+            relations.push({
+              from: headlinerEntityName,
+              to: showId,
+              relationType: 'PERFORMS_IN',
+              metadata: { is_headliner: true, billing_order: 1, createdAt: now, updatedAt: now },
+            });
+          }
+
+          // Show → PART_OF_EVENT → Event
+          if (eventName) {
+            relations.push({
+              from: showId,
+              to: eventName,
+              relationType: 'PART_OF_EVENT',
+              metadata: { createdAt: now, updatedAt: now },
+            });
+          }
+
+          showsCreated++;
+        }
+
+        // Create all relations
+        if (relations.length > 0) {
+          try {
+            await knowledgeGraphManager.createRelations(relations);
+          } catch (error) {
+            logger.warn('Failed to create some relations during date repair', { entityName, error });
+          }
+        }
+
+        // Update poster observations: replace the failed note with repaired dates
+        const repairedNote = `Date repaired: ${parsedDates.join(', ')} (from: "${rawDate}")`;
+        try {
+          // Add the repaired note
+          await knowledgeGraphManager.addObservations([{
+            entityName,
+            contents: [
+              repairedNote,
+              `Event date: ${parsedDates[0]}`,
+              ...(parsedDates.length > 1 ? [`Event dates: ${parsedDates.join(', ')}`] : []),
+              ...(year ? [`Year: ${year}`] : []),
+            ],
+          }]);
+
+          // Remove the old failure note
+          await knowledgeGraphManager.deleteObservations([{
+            entityName,
+            observations: [noteToUse],
+          }]);
+        } catch (error) {
+          logger.warn('Failed to update observations during date repair', { entityName, error });
+        }
+
+        totalShowsCreated += showsCreated;
+        details.push({
+          entityName,
+          status: 'repaired',
+          rawDate,
+          parsedDates,
+          showsCreated,
+        });
+
+        logger.info('Date repaired', { entityName, rawDate, parsedDates, showsCreated });
+      } catch (error) {
+        logger.error('Date repair error', { entityName, error });
+        details.push({
+          entityName,
+          status: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    const repaired = details.filter(d => d.status === 'repaired').length;
+    const skipped = details.filter(d => d.status === 'skipped').length;
+
+    logger.info('Date repair complete', {
+      sessionId,
+      postersScanned: liveImages.length,
+      repaired,
+      skipped,
+      totalShowsCreated,
+    });
+
+    res.json({
+      success: true,
+      postersScanned: liveImages.length,
+      postersRepaired: repaired,
+      postersSkipped: skipped,
+      showsCreated: totalShowsCreated,
+      details,
     });
   }));
 

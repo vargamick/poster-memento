@@ -132,8 +132,9 @@ class ProcessingManager {
       cancelProcessingBtn: document.getElementById('cancel-processing-btn'),
       newRunBtn: document.getElementById('new-run-btn'),
 
-      // Reprocess
+      // Reprocess / Repair
       reprocessSessionBtn: document.getElementById('reprocess-session-btn'),
+      repairDatesBtn: document.getElementById('repair-dates-btn'),
 
       // Database management (Database Tab)
       dbEntities: document.getElementById('db-entities'),
@@ -176,6 +177,7 @@ class ProcessingManager {
     this.elements.createSessionBtn?.addEventListener('click', () => this.createSession());
     this.elements.deleteSessionBtn?.addEventListener('click', () => this.deleteSession());
     this.elements.reprocessSessionBtn?.addEventListener('click', () => this.reprocessSession());
+    this.elements.repairDatesBtn?.addEventListener('click', () => this.repairSessionDates());
 
     // Step 2: Upload
     this.elements.browseBtn?.addEventListener('click', () => this.browseLocalFolder());
@@ -552,6 +554,76 @@ class ProcessingManager {
     } finally {
       if (this.elements.reprocessSessionBtn) {
         this.elements.reprocessSessionBtn.disabled = false;
+      }
+    }
+  }
+
+  /**
+   * Repair dates on existing posters from a completed session.
+   * Re-parses raw date strings using improved logic without re-running vision models.
+   */
+  async repairSessionDates() {
+    if (!this.currentSessionId) return;
+
+    const sessionName = this.currentSession?.name || this.currentSessionId;
+    const confirmed = confirm(
+      `Repair dates for session "${sessionName}"?\n\n` +
+      `This will:\n` +
+      `- Scan all posters from this session for unparsed dates\n` +
+      `- Re-parse date strings using improved parsing logic\n` +
+      `- Create missing Show entities and link them\n` +
+      `- Update poster observations with corrected dates\n\n` +
+      `No vision model calls needed — uses already-extracted data.`
+    );
+    if (!confirmed) return;
+
+    try {
+      this.addLogEntry(`Repairing dates for session: ${sessionName}...`, 'info');
+      this.elements.repairDatesBtn.disabled = true;
+
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(this.currentSessionId)}/repair-dates`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': 'posters-api-key-2024'
+        }
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error?.message || result.message || 'Date repair failed');
+      }
+
+      if (result.success) {
+        this.addLogEntry(
+          `Date repair complete: ${result.postersScanned} posters scanned, ` +
+          `${result.postersRepaired} repaired, ${result.showsCreated} shows created.`,
+          'success'
+        );
+
+        // Log individual results
+        for (const detail of (result.details || [])) {
+          if (detail.status === 'repaired') {
+            this.addLogEntry(
+              `  ${detail.entityName}: "${detail.rawDate}" → ${detail.parsedDates?.join(', ')} (${detail.showsCreated} show(s))`,
+              'success'
+            );
+          } else if (detail.status === 'error') {
+            this.addLogEntry(`  ${detail.entityName}: Error - ${detail.message}`, 'error');
+          }
+        }
+
+        // Mark browse as stale since we created new entities
+        window.posterApp?.markBrowseStale();
+      } else {
+        throw new Error('Date repair failed');
+      }
+    } catch (error) {
+      console.error('Failed to repair dates:', error);
+      this.showError('Failed to repair dates: ' + error.message);
+    } finally {
+      if (this.elements.repairDatesBtn) {
+        this.elements.repairDatesBtn.disabled = false;
       }
     }
   }
@@ -1144,10 +1216,13 @@ class ProcessingManager {
       this.elements.sessionImageCount.textContent = this.currentSession?.imageCount || 0;
     }
 
-    // Show reprocess button when session has 0 remaining images (all processed to live)
+    // Show reprocess / repair buttons when session has 0 remaining images (all processed to live)
+    const showPostProcessActions = hasSession && this.sessionImages.length === 0;
     if (this.elements.reprocessSessionBtn) {
-      const showReprocess = hasSession && this.sessionImages.length === 0;
-      this.elements.reprocessSessionBtn.classList.toggle('hidden', !showReprocess);
+      this.elements.reprocessSessionBtn.classList.toggle('hidden', !showPostProcessActions);
+    }
+    if (this.elements.repairDatesBtn) {
+      this.elements.repairDatesBtn.classList.toggle('hidden', !showPostProcessActions);
     }
   }
 

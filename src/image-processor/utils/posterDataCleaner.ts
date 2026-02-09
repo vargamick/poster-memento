@@ -530,6 +530,131 @@ export function extractYear(value: string | undefined | null): number | null {
 }
 
 // ============================================================================
+// Multi-Date Splitting
+// ============================================================================
+
+/**
+ * Full month name pattern for shared month detection in multi-date strings.
+ */
+const MULTI_DATE_MONTH_PATTERN = /\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i;
+
+/**
+ * Day-of-week pattern to strip from date string segments.
+ */
+const DAY_OF_WEEK_PREFIX = /^(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)[,.\s]*/i;
+
+/**
+ * Extract the full day-of-week name from a date string segment.
+ */
+export function extractDayOfWeek(segment: string): string | undefined {
+  const match = segment.match(/^(mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)/i);
+  if (!match) return undefined;
+  const abbrev = match[1].substring(0, 3).toLowerCase();
+  const dayMap: Record<string, string> = {
+    mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday',
+    thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday',
+  };
+  return dayMap[abbrev];
+}
+
+/**
+ * Split a multi-date string into individual date segments.
+ *
+ * Separator semantics:
+ * - "&", "and", "," → individual discrete dates
+ * - "/" when between day-of-week+date patterns → individual dates
+ *   (e.g., "Fri 27 April / Sat 28 April")
+ * - "-", "–", "to" → date range (expand each day between start and end)
+ *
+ * Shared trailing month/year is distributed to each segment
+ * (e.g., "17th & 18th September, 2005" → ["17th September 2005", "18th September 2005"]).
+ */
+export function splitMultiDateString(raw: string): { dateStr: string; dayOfWeek?: string }[] {
+  const trimmed = raw.trim();
+
+  // Quick check: if no separator present, return as-is
+  if (!/[&,\/]|\band\b|\bto\b/i.test(trimmed)) {
+    const dow = extractDayOfWeek(trimmed);
+    return [{ dateStr: trimmed, dayOfWeek: dow }];
+  }
+
+  // Extract a trailing shared year (e.g., ", 2005" at the end)
+  let sharedYear = '';
+  let body = trimmed;
+  const trailingYearMatch = body.match(/,?\s*((?:19|20)\d{2})\s*$/);
+  if (trailingYearMatch) {
+    sharedYear = trailingYearMatch[1];
+    body = body.substring(0, body.length - trailingYearMatch[0].length).trim();
+  }
+
+  // Extract a trailing shared month (e.g., "September" at the end after removing year)
+  let sharedMonth = '';
+  const trailingMonthMatch = body.match(/,?\s*(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s*$/i);
+  if (trailingMonthMatch) {
+    sharedMonth = trailingMonthMatch[1];
+    body = body.substring(0, body.length - trailingMonthMatch[0].length).trim();
+  }
+
+  // Detect range separators: "17th - 18th", "17 to 19"
+  // Only treat "-" as range when it separates day numbers (not "DD-MM-YYYY" style)
+  const rangeMatch = body.match(/^(.+?)\s*(?:-|–|to)\s*(.+)$/i);
+  if (rangeMatch && sharedMonth) {
+    const startPart = rangeMatch[1].trim();
+    const endPart = rangeMatch[2].trim();
+
+    const startDayMatch = startPart.replace(DAY_OF_WEEK_PREFIX, '').match(/^(\d{1,2})(?:st|nd|rd|th)?$/i);
+    const endDayMatch = endPart.replace(DAY_OF_WEEK_PREFIX, '').match(/^(\d{1,2})(?:st|nd|rd|th)?$/i);
+
+    if (startDayMatch && endDayMatch) {
+      const startDay = parseInt(startDayMatch[1], 10);
+      const endDay = parseInt(endDayMatch[1], 10);
+
+      if (endDay >= startDay && (endDay - startDay) < 14) {
+        const results: { dateStr: string; dayOfWeek?: string }[] = [];
+        for (let d = startDay; d <= endDay; d++) {
+          const fullDate = sharedYear
+            ? `${d} ${sharedMonth} ${sharedYear}`
+            : `${d} ${sharedMonth}`;
+          results.push({ dateStr: fullDate });
+        }
+        return results;
+      }
+    }
+  }
+
+  // Split on individual-date separators: &, "and", ","
+  // Also split on "/" when it separates date-like segments (not DD/MM/YYYY)
+  const slashIsDateSep = /[a-z]\s*\/\s*[a-z]/i.test(body) ||
+    /\d\s+\w+\s*\/\s*\w+\s+\d/.test(body);
+
+  const splitPattern = slashIsDateSep
+    ? /\s*(?:&|,|\band\b|\/)\s*/i
+    : /\s*(?:&|,|\band\b)\s*/i;
+
+  const segments = body.split(splitPattern).map(s => s.trim()).filter(s => s.length > 0);
+
+  if (segments.length <= 1) {
+    const dow = extractDayOfWeek(trimmed);
+    return [{ dateStr: trimmed, dayOfWeek: dow }];
+  }
+
+  // Distribute shared month/year to segments that lack them
+  return segments.map(seg => {
+    const dow = extractDayOfWeek(seg);
+    let datePart = seg.replace(DAY_OF_WEEK_PREFIX, '').trim();
+
+    if (sharedMonth && !MULTI_DATE_MONTH_PATTERN.test(datePart)) {
+      datePart = `${datePart} ${sharedMonth}`;
+    }
+    if (sharedYear && !/(?:19|20)\d{2}/.test(datePart)) {
+      datePart = `${datePart} ${sharedYear}`;
+    }
+
+    return { dateStr: datePart.trim(), dayOfWeek: dow };
+  });
+}
+
+// ============================================================================
 // Field Validation
 // ============================================================================
 
