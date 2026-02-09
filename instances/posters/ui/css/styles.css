@@ -425,10 +425,17 @@ header .subtitle {
 }
 
 .type-badge.event { background: #dbeafe; color: #1e40af; }
+.type-badge.concert { background: #dbeafe; color: #1e40af; }
 .type-badge.release { background: #fce7f3; color: #9d174d; }
+.type-badge.album { background: #ccfbf1; color: #0f766e; }
 .type-badge.promo { background: #d1fae5; color: #065f46; }
 .type-badge.exhibition { background: #fef3c7; color: #92400e; }
 .type-badge.hybrid { background: #e0e7ff; color: #3730a3; }
+.type-badge.film { background: #e0e7ff; color: #3730a3; }
+.type-badge.festival { background: #fef9c3; color: #854d0e; }
+.type-badge.comedy { background: #fce7f3; color: #9d174d; }
+.type-badge.theater { background: #f3e8ff; color: #6b21a8; }
+.type-badge.unknown { background: #f1f5f9; color: #475569; }
 .type-badge.missing { background: #fef2f2; color: #dc2626; border: 2px solid #dc2626; }
 .type-badge.null { background: #fef2f2; color: #dc2626; border: 2px solid #dc2626; }
 
@@ -4420,4 +4427,96 @@ a.tutorial-highlighted {
 .results-accept-all:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ================================================
+   Type Subtabs (within Browse Collection)
+   ================================================ */
+
+.subtabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--card-background);
+}
+
+.subtab-btn {
+  flex: 1;
+  padding: 10px 12px;
+  border: none;
+  border-right: 1px solid var(--border-color);
+  background: transparent;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.subtab-btn:last-child {
+  border-right: none;
+}
+
+.subtab-btn:hover {
+  background: rgba(37, 99, 235, 0.05);
+  color: var(--primary-color);
+}
+
+.subtab-btn.active {
+  background: var(--primary-color);
+  color: white;
+}
+
+.subtab-count {
+  display: inline-block;
+  min-width: 22px;
+  height: 18px;
+  line-height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.subtab-btn.active .subtab-count {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Type-specific column styles */
+.td-director { max-width: 150px; }
+.td-cast { max-width: 200px; }
+.td-tagline {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-style: italic;
+  font-size: 0.9em;
+}
+.td-label { color: var(--text-secondary); font-size: 0.9em; }
+.td-release-type { text-transform: capitalize; }
+.td-date-range { white-space: nowrap; }
+
+/* Responsive subtabs */
+@media (max-width: 768px) {
+  .subtabs {
+    flex-wrap: wrap;
+  }
+  .subtab-btn {
+    flex: 0 0 25%;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.78rem;
+    padding: 8px 6px;
+  }
 }

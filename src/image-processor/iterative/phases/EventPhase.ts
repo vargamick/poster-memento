@@ -25,8 +25,8 @@ import { splitMultiDateString } from '../../utils/posterDataCleaner.js';
  */
 const DATE_PATTERNS = [
   // Full date formats
-  { regex: /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/, order: ['month', 'day', 'year'] },
-  { regex: /(\d{1,2})-(\d{1,2})-(\d{2,4})/, order: ['month', 'day', 'year'] },
+  { regex: /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/, order: ['day', 'month', 'year'] },
+  { regex: /(\d{1,2})-(\d{1,2})-(\d{2,4})/, order: ['day', 'month', 'year'] },
   { regex: /(\d{1,2})\.(\d{1,2})\.(\d{2,4})/, order: ['day', 'month', 'year'] },
   // Month name formats (full month names)
   { regex: /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})?/i, order: ['month_name', 'day', 'year'] },

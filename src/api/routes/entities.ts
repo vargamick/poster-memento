@@ -85,6 +85,7 @@ export function createEntityRoutes(entityService: EntityService, storageProvider
       match,
       matchMode = 'fuzzy',
       matchPrefix,
+      posterType,
       q: query
     } = req.query;
 
@@ -212,6 +213,27 @@ export function createEntityRoutes(entityService: EntityService, storageProvider
         }
       }
 
+      // Apply posterType filter if requested (post-filter on enriched typeRelationships)
+      const parsedPosterType = posterType as string | undefined;
+      if (parsedPosterType && entities.length > 0) {
+        const knownTypes = ['concert', 'film', 'release', 'album', 'festival', 'comedy', 'theater'];
+        const requestedTypes = parsedPosterType === 'other'
+          ? null  // "other" means NOT in known types
+          : parsedPosterType.split(',').map(t => t.trim().toLowerCase());
+
+        entities = entities.filter(entity => {
+          const typeRels = (entity as any).typeRelationships || [];
+          if (requestedTypes) {
+            // Include if any type relationship matches requested types
+            return typeRels.some((tr: any) => requestedTypes.includes(tr.typeKey?.toLowerCase()));
+          } else {
+            // "other": include if no type relationships OR none match known types
+            if (typeRels.length === 0) return true;
+            return !typeRels.some((tr: any) => knownTypes.includes(tr.typeKey?.toLowerCase()));
+          }
+        });
+      }
+
       // Apply term matching if requested
       if (parsedMatch.length > 0 && entities.length > 0) {
         const matchResults: any[] = [];
@@ -251,7 +273,10 @@ export function createEntityRoutes(entityService: EntityService, storageProvider
       }
 
       // Extract total from pagination metadata returned by storage provider
-      const paginationTotal = (result.data as any)?.pagination?.total ?? result.data?.entities.length ?? 0;
+      // If posterType filter was applied, use filtered count instead
+      const paginationTotal = parsedPosterType
+        ? entities.length
+        : ((result.data as any)?.pagination?.total ?? result.data?.entities.length ?? 0);
 
       res.json({
         data: {

@@ -29,6 +29,31 @@ class PosterApp {
     // Filter state for clickable links (artist, venue, type)
     this.activeFilter = null; // { type: 'artist'|'venue'|'posterType', value: string }
 
+    // Subtab state
+    this.activeSubtab = 'all';
+    this.typeCounts = {};
+    this.subtabState = {
+      all:      { page: 1, sortColumn: 'createdAt', sortDirection: 'desc' },
+      concert:  { page: 1, sortColumn: 'createdAt', sortDirection: 'desc' },
+      film:     { page: 1, sortColumn: 'createdAt', sortDirection: 'desc' },
+      album:    { page: 1, sortColumn: 'createdAt', sortDirection: 'desc' },
+      festival: { page: 1, sortColumn: 'createdAt', sortDirection: 'desc' },
+      comedy:   { page: 1, sortColumn: 'createdAt', sortDirection: 'desc' },
+      theater:  { page: 1, sortColumn: 'createdAt', sortDirection: 'desc' },
+      other:    { page: 1, sortColumn: 'createdAt', sortDirection: 'desc' },
+    };
+    // Maps subtab key -> posterType API filter values
+    this.subtabTypeMap = {
+      all: null,
+      concert: 'concert',
+      film: 'film',
+      album: 'release,album',
+      festival: 'festival',
+      comedy: 'comedy',
+      theater: 'theater',
+      other: 'other',
+    };
+
     // Stale flag: set when other tabs modify data, triggers refresh on browse tab switch
     this.browseStale = false;
 
@@ -77,6 +102,7 @@ class PosterApp {
     // Bind event handlers
     this.bindEvents();
     this.bindTabEvents();
+    this.bindSubtabEvents();
 
     // Create filter bar UI
     this.createFilterBar();
@@ -86,6 +112,9 @@ class PosterApp {
 
     // Initial load
     this.loadPosters();
+
+    // Load type counts for subtab badges
+    this.loadTypeCounts();
   }
 
   /**
@@ -124,12 +153,29 @@ class PosterApp {
   parseUrlFilters() {
     const params = new URLSearchParams(window.location.search);
 
+    // Check for subtab URL param
+    if (params.has('subtab')) {
+      const subtab = params.get('subtab');
+      if (this.subtabState[subtab]) {
+        this.activeSubtab = subtab;
+        // Update subtab button UI
+        document.querySelectorAll('.subtab-btn').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.subtab === subtab);
+        });
+      }
+    }
+
     if (params.has('artist')) {
       this.activeFilter = { type: 'artist', value: params.get('artist') };
     } else if (params.has('venue')) {
       this.activeFilter = { type: 'venue', value: params.get('venue') };
     } else if (params.has('posterType')) {
-      this.activeFilter = { type: 'posterType', value: params.get('posterType') };
+      // Auto-select matching subtab
+      const type = params.get('posterType');
+      this.autoSelectSubtab(type);
+      document.querySelectorAll('.subtab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.subtab === this.activeSubtab);
+      });
     }
 
     if (this.activeFilter) {
@@ -147,6 +193,12 @@ class PosterApp {
     url.searchParams.delete('artist');
     url.searchParams.delete('venue');
     url.searchParams.delete('posterType');
+    url.searchParams.delete('subtab');
+
+    // Set subtab if not 'all'
+    if (this.activeSubtab !== 'all') {
+      url.searchParams.set('subtab', this.activeSubtab);
+    }
 
     // Set new filter param if active
     if (this.activeFilter) {
@@ -186,6 +238,7 @@ class PosterApp {
    */
   markBrowseStale() {
     this.browseStale = true;
+    this.loadTypeCounts();
   }
 
   /**
@@ -207,6 +260,195 @@ class PosterApp {
     } else {
       this.elements.filterBar.classList.add('hidden');
     }
+  }
+
+  // ============================================================================
+  // Subtab Management
+  // ============================================================================
+
+  /**
+   * Bind subtab click events
+   */
+  bindSubtabEvents() {
+    document.querySelectorAll('.subtab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.switchSubtab(btn.dataset.subtab);
+      });
+    });
+  }
+
+  /**
+   * Switch to a different subtab
+   */
+  switchSubtab(subtab) {
+    if (subtab === this.activeSubtab) return;
+
+    // Save current pagination state
+    this.subtabState[this.activeSubtab].page = this.currentPage;
+    this.subtabState[this.activeSubtab].sortColumn = this.sortColumn;
+    this.subtabState[this.activeSubtab].sortDirection = this.sortDirection;
+
+    // Activate new subtab
+    this.activeSubtab = subtab;
+
+    // Restore saved state
+    const state = this.subtabState[subtab];
+    this.currentPage = state.page;
+    this.sortColumn = state.sortColumn;
+    this.sortDirection = state.sortDirection;
+
+    // Update subtab button UI
+    document.querySelectorAll('.subtab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.subtab === subtab);
+    });
+
+    // Clear search and filter when switching subtabs
+    this.currentSearch = '';
+    this.elements.searchInput.value = '';
+    this.activeFilter = null;
+    this.updateFilterBar();
+    this.updateUrlWithFilter();
+
+    // Load data for this subtab
+    this.loadPosters();
+  }
+
+  /**
+   * Get the posterType API filter for the active subtab
+   */
+  getSubtabTypeFilter() {
+    return this.subtabTypeMap[this.activeSubtab] || null;
+  }
+
+  /**
+   * Load type counts from the API and update subtab badges
+   */
+  async loadTypeCounts() {
+    try {
+      const result = await this.api.getTypeCounts();
+      const data = result.data || result;
+      const typeStats = data.types || [];
+
+      // Build a map of typeKey -> count
+      const statMap = {};
+      for (const stat of typeStats) {
+        statMap[stat.typeKey] = stat.count;
+      }
+
+      this.typeCounts = {
+        all: data.total || 0,
+        concert: statMap.concert || 0,
+        film: statMap.film || 0,
+        album: (statMap.release || 0) + (statMap.album || 0),
+        festival: statMap.festival || 0,
+        comedy: statMap.comedy || 0,
+        theater: statMap.theater || 0,
+      };
+
+      // "Other" = total minus known types
+      const knownCount = this.typeCounts.concert + this.typeCounts.film +
+        this.typeCounts.album + this.typeCounts.festival +
+        this.typeCounts.comedy + this.typeCounts.theater;
+      this.typeCounts.other = Math.max(0, (data.total || 0) - knownCount);
+
+      // Update badge numbers in DOM
+      for (const [key, count] of Object.entries(this.typeCounts)) {
+        const el = document.getElementById(`count-${key}`);
+        if (el) el.textContent = count;
+      }
+    } catch (error) {
+      console.warn('Failed to load type counts:', error);
+    }
+  }
+
+  /**
+   * Get column definitions for the active subtab
+   */
+  getColumnsForSubtab(subtab) {
+    switch (subtab) {
+      case 'concert':
+        return [
+          { key: 'thumbnail', label: 'Image', cls: 'th-thumbnail', sortable: false },
+          { key: 'name', label: 'Name', cls: 'th-name', sortable: true, sortKey: 'name' },
+          { key: 'headliner', label: 'Headliner', cls: 'th-artists', sortable: false },
+          { key: 'supporting', label: 'Supporting', cls: 'th-artists', sortable: false },
+          { key: 'venue', label: 'Venue', cls: 'th-venue', sortable: true, sortKey: 'venue_name' },
+          { key: 'date', label: 'Date', cls: 'th-date', sortable: true, sortKey: 'event_date' },
+          { key: 'added', label: 'Added', cls: 'th-added', sortable: true, sortKey: 'createdAt' },
+          { key: 'actions', label: 'Actions', cls: 'th-row-actions', sortable: false },
+        ];
+
+      case 'film':
+        return [
+          { key: 'thumbnail', label: 'Image', cls: 'th-thumbnail', sortable: false },
+          { key: 'name', label: 'Title', cls: 'th-name', sortable: true, sortKey: 'name' },
+          { key: 'director', label: 'Director', cls: 'th-artists', sortable: false },
+          { key: 'cast', label: 'Cast', cls: 'th-artists', sortable: false },
+          { key: 'year', label: 'Year', cls: 'th-date', sortable: true, sortKey: 'event_date' },
+          { key: 'added', label: 'Added', cls: 'th-added', sortable: true, sortKey: 'createdAt' },
+          { key: 'actions', label: 'Actions', cls: 'th-row-actions', sortable: false },
+        ];
+
+      case 'album':
+        return [
+          { key: 'thumbnail', label: 'Image', cls: 'th-thumbnail', sortable: false },
+          { key: 'name', label: 'Title', cls: 'th-name', sortable: true, sortKey: 'name' },
+          { key: 'artist', label: 'Artist', cls: 'th-artists', sortable: false },
+          { key: 'label', label: 'Label', cls: 'th-venue', sortable: false },
+          { key: 'releaseDate', label: 'Release Date', cls: 'th-date', sortable: true, sortKey: 'event_date' },
+          { key: 'added', label: 'Added', cls: 'th-added', sortable: true, sortKey: 'createdAt' },
+          { key: 'actions', label: 'Actions', cls: 'th-row-actions', sortable: false },
+        ];
+
+      case 'festival':
+        return [
+          { key: 'thumbnail', label: 'Image', cls: 'th-thumbnail', sortable: false },
+          { key: 'name', label: 'Name', cls: 'th-name', sortable: true, sortKey: 'name' },
+          { key: 'performers', label: 'Performers', cls: 'th-artists', sortable: false },
+          { key: 'venue', label: 'Venue', cls: 'th-venue', sortable: true, sortKey: 'venue_name' },
+          { key: 'dates', label: 'Date Range', cls: 'th-date', sortable: true, sortKey: 'event_date' },
+          { key: 'added', label: 'Added', cls: 'th-added', sortable: true, sortKey: 'createdAt' },
+          { key: 'actions', label: 'Actions', cls: 'th-row-actions', sortable: false },
+        ];
+
+      case 'comedy':
+      case 'theater':
+        return [
+          { key: 'thumbnail', label: 'Image', cls: 'th-thumbnail', sortable: false },
+          { key: 'name', label: 'Name', cls: 'th-name', sortable: true, sortKey: 'name' },
+          { key: 'performer', label: 'Performer', cls: 'th-artists', sortable: false },
+          { key: 'venue', label: 'Venue', cls: 'th-venue', sortable: true, sortKey: 'venue_name' },
+          { key: 'date', label: 'Date', cls: 'th-date', sortable: true, sortKey: 'event_date' },
+          { key: 'added', label: 'Added', cls: 'th-added', sortable: true, sortKey: 'createdAt' },
+          { key: 'actions', label: 'Actions', cls: 'th-row-actions', sortable: false },
+        ];
+
+      default: // 'all' and 'other'
+        return [
+          { key: 'thumbnail', label: 'Image', cls: 'th-thumbnail', sortable: false },
+          { key: 'name', label: 'Name', cls: 'th-name', sortable: true, sortKey: 'name' },
+          { key: 'type', label: 'Type', cls: 'th-type', sortable: true, sortKey: 'poster_type' },
+          { key: 'people', label: 'People', cls: 'th-artists', sortable: false },
+          { key: 'venue', label: 'Venue', cls: 'th-venue', sortable: true, sortKey: 'venue_name' },
+          { key: 'date', label: 'Date', cls: 'th-date', sortable: true, sortKey: 'event_date' },
+          { key: 'added', label: 'Added', cls: 'th-added', sortable: true, sortKey: 'createdAt' },
+          { key: 'actions', label: 'Actions', cls: 'th-row-actions', sortable: false },
+        ];
+    }
+  }
+
+  /**
+   * Auto-select the subtab matching a poster type
+   */
+  autoSelectSubtab(typeKey) {
+    const type = (typeKey || '').toLowerCase();
+    if (type === 'concert') this.activeSubtab = 'concert';
+    else if (type === 'film' || type === 'movie') this.activeSubtab = 'film';
+    else if (type === 'release' || type === 'album') this.activeSubtab = 'album';
+    else if (type === 'festival') this.activeSubtab = 'festival';
+    else if (type === 'comedy') this.activeSubtab = 'comedy';
+    else if (type === 'theater' || type === 'theatre') this.activeSubtab = 'theater';
+    else this.activeSubtab = 'other';
   }
 
   /**
@@ -432,12 +674,20 @@ class PosterApp {
         }
       } else {
         // Use entities endpoint with sort params
-        result = await this.api.getPosters({
+        const posterOpts = {
           limit: this.limit,
           offset,
           sortBy: this.sortColumn,
           sortOrder: this.sortDirection
-        });
+        };
+
+        // Add posterType filter based on active subtab
+        const typeFilter = this.getSubtabTypeFilter();
+        if (typeFilter) {
+          posterOpts.posterType = typeFilter;
+        }
+
+        result = await this.api.getPosters(posterOpts);
 
         // Handle entities response format
         if (result.data?.entities) {
@@ -745,8 +995,26 @@ class PosterApp {
     this.elements.tableContainer.classList.remove('hidden');
     this.elements.emptyState.classList.add('hidden');
 
+    // Render dynamic headers based on active subtab
+    const columns = this.getColumnsForSubtab(this.activeSubtab);
+    const thead = this.elements.posterTable.querySelector('thead');
+    thead.innerHTML = `<tr>${columns.map(col => {
+      if (!col.sortable) {
+        return `<th class="${col.cls}">${col.label}</th>`;
+      }
+      const isActive = this.sortColumn === col.sortKey;
+      const dirClass = isActive ? this.sortDirection : '';
+      return `<th class="${col.cls} sortable ${isActive ? 'active' : ''} ${dirClass}" data-sort="${col.sortKey}">${col.label} <span class="sort-icon"></span></th>`;
+    }).join('')}</tr>`;
+
+    // Re-bind sort handlers for new headers
+    thead.querySelectorAll('th.sortable').forEach(th => {
+      th.addEventListener('click', () => this.handleSort(th.dataset.sort));
+    });
+
+    // Render rows using subtab-specific renderer
     this.elements.posterTbody.innerHTML = this.posters.map((poster, index) =>
-      this.renderTableRow(poster, index)
+      this.renderTableRowForSubtab(poster, index)
     ).join('');
 
     // Add click handlers
@@ -777,7 +1045,11 @@ class PosterApp {
         e.stopPropagation();
         const type = link.dataset.type;
         const value = link.dataset.value;
-        if (type && value) {
+        if (type === 'posterType' && value) {
+          // Switch to matching subtab instead of filtering
+          this.autoSelectSubtab(value);
+          this.switchSubtab(this.activeSubtab);
+        } else if (type && value) {
           this.setFilter(type, value);
         }
       });
@@ -801,7 +1073,7 @@ class PosterApp {
    */
   renderTableRow(poster, index) {
     const posterType = this.getPosterType(poster);
-    const createdAt = poster.createdAt ? new Date(poster.createdAt).toLocaleDateString() : '-';
+    const createdAt = poster.createdAt ? new Date(poster.createdAt).toLocaleDateString('en-AU') : '-';
     const eventDate = this.getEventDate(poster) || '-';
     const venueName = this.getVenueName(poster) || '-';
     const hash = this.getImageHash(poster);
@@ -857,6 +1129,280 @@ class PosterApp {
         </td>
       </tr>
     `;
+  }
+
+  // ============================================================================
+  // Shared Rendering Helpers
+  // ============================================================================
+
+  renderThumbnailHtml(hash, altText) {
+    if (hash && this.imageUrls[hash]) {
+      return `<div class="thumbnail-wrapper" data-hash="${this.escapeHtml(hash)}"><img src="${this.escapeHtml(this.imageUrls[hash])}" alt="${this.escapeHtml(altText)}" loading="lazy"></div>`;
+    } else if (hash) {
+      return `<div class="thumbnail-loading" data-hash="${this.escapeHtml(hash)}"><div class="mini-spinner"></div></div>`;
+    }
+    return `<div class="thumbnail-placeholder">&#127912;</div>`;
+  }
+
+  renderNameCellHtml(title, hash) {
+    return `<div class="poster-name-cell"><span class="poster-title">${this.escapeHtml(title)}</span>${hash ? `<span class="poster-id">${this.escapeHtml(hash)}</span>` : ''}</div>`;
+  }
+
+  renderVenueLinkHtml(venueName) {
+    return venueName && venueName !== '-'
+      ? `<a href="#" class="entity-link venue-link" data-type="venue" data-value="${this.escapeHtml(venueName)}">${this.escapeHtml(venueName)}</a>`
+      : '-';
+  }
+
+  renderActionBtnHtml(index) {
+    return `<button class="row-action-trigger" data-poster-index="${index}" title="Actions">&#8942;</button>`;
+  }
+
+  /**
+   * Get the current column count for colspan in result panels
+   */
+  getColumnCount() {
+    return this.getColumnsForSubtab(this.activeSubtab).length;
+  }
+
+  // ============================================================================
+  // Subtab-Specific Row Renderers
+  // ============================================================================
+
+  /**
+   * Dispatch row rendering to the appropriate subtab renderer
+   */
+  renderTableRowForSubtab(poster, index) {
+    switch (this.activeSubtab) {
+      case 'concert': return this.renderConcertRow(poster, index);
+      case 'film': return this.renderFilmRow(poster, index);
+      case 'album': return this.renderAlbumRow(poster, index);
+      case 'festival': return this.renderFestivalRow(poster, index);
+      case 'comedy':
+      case 'theater': return this.renderPerformerRow(poster, index);
+      default: return this.renderTableRow(poster, index);
+    }
+  }
+
+  renderConcertRow(poster, index) {
+    const hash = this.getImageHash(poster);
+    const title = this.getPosterTitle(poster) || this.formatPosterName(poster.name || 'Untitled');
+    const venueName = this.getVenueName(poster) || '-';
+    const eventDate = this.getEventDate(poster) || '-';
+    const createdAt = poster.createdAt ? new Date(poster.createdAt).toLocaleDateString('en-AU') : '-';
+
+    // Split artists into headliner and supporting
+    const headlinerHtml = this.renderHeadlinerOnly(poster);
+    const supportingHtml = this.renderSupportingOnly(poster);
+
+    return `
+      <tr data-index="${index}">
+        <td class="td-thumbnail">${this.renderThumbnailHtml(hash, title)}</td>
+        <td class="td-name">${this.renderNameCellHtml(title, hash)}</td>
+        <td class="artists-cell">${headlinerHtml}</td>
+        <td class="artists-cell">${supportingHtml}</td>
+        <td class="venue-cell">${this.renderVenueLinkHtml(venueName)}</td>
+        <td>${this.escapeHtml(eventDate)}</td>
+        <td>${createdAt}</td>
+        <td class="td-row-actions">${this.renderActionBtnHtml(index)}</td>
+      </tr>
+    `;
+  }
+
+  renderFilmRow(poster, index) {
+    const hash = this.getImageHash(poster);
+    const title = this.getPosterTitle(poster) || this.formatPosterName(poster.name || 'Untitled');
+    const metadata = poster.metadata || {};
+    const parsed = this.parseObservations(poster);
+    const createdAt = poster.createdAt ? new Date(poster.createdAt).toLocaleDateString('en-AU') : '-';
+
+    // Director
+    const director = metadata.director || parsed.director || '-';
+    const directorHtml = director !== '-'
+      ? `<a href="#" class="entity-link artist-link headliner" data-type="artist" data-value="${this.escapeHtml(director)}">${this.escapeHtml(director)}</a>`
+      : '-';
+
+    // Cast
+    const cast = metadata.cast || metadata.starring || [];
+    let castHtml = '-';
+    if (cast.length > 0) {
+      const displayCast = cast.slice(0, 3);
+      castHtml = displayCast.map(c =>
+        `<a href="#" class="entity-link artist-link supporting" data-type="artist" data-value="${this.escapeHtml(c)}">${this.escapeHtml(c)}</a>`
+      ).join(', ');
+      if (cast.length > 3) {
+        castHtml += ` <span class="more-artists">+${cast.length - 3}</span>`;
+      }
+    }
+
+    // Year
+    const year = metadata.year || parsed.year || this.getFieldFromObservations(poster, 'year') || '-';
+
+    return `
+      <tr data-index="${index}">
+        <td class="td-thumbnail">${this.renderThumbnailHtml(hash, title)}</td>
+        <td class="td-name">${this.renderNameCellHtml(title, hash)}</td>
+        <td class="td-director">${directorHtml}</td>
+        <td class="td-cast artists-cell">${castHtml}</td>
+        <td>${this.escapeHtml(String(year))}</td>
+        <td>${createdAt}</td>
+        <td class="td-row-actions">${this.renderActionBtnHtml(index)}</td>
+      </tr>
+    `;
+  }
+
+  renderAlbumRow(poster, index) {
+    const hash = this.getImageHash(poster);
+    const title = this.getPosterTitle(poster) || this.formatPosterName(poster.name || 'Untitled');
+    const metadata = poster.metadata || {};
+    const parsed = this.parseObservations(poster);
+    const createdAt = poster.createdAt ? new Date(poster.createdAt).toLocaleDateString('en-AU') : '-';
+
+    // Artist (headliner)
+    const artist = poster.headliner || parsed.headliner || '-';
+    const artistHtml = artist !== '-'
+      ? `<a href="#" class="entity-link artist-link headliner" data-type="artist" data-value="${this.escapeHtml(artist)}">${this.escapeHtml(artist)}</a>`
+      : '-';
+
+    // Label
+    const label = metadata.record_label || parsed.record_label || '-';
+
+    // Release date
+    const releaseDate = metadata.release_date || parsed.release_date || this.getEventDate(poster) || '-';
+
+    return `
+      <tr data-index="${index}">
+        <td class="td-thumbnail">${this.renderThumbnailHtml(hash, title)}</td>
+        <td class="td-name">${this.renderNameCellHtml(title, hash)}</td>
+        <td class="artists-cell">${artistHtml}</td>
+        <td class="td-label">${this.escapeHtml(label)}</td>
+        <td>${this.escapeHtml(releaseDate)}</td>
+        <td>${createdAt}</td>
+        <td class="td-row-actions">${this.renderActionBtnHtml(index)}</td>
+      </tr>
+    `;
+  }
+
+  renderFestivalRow(poster, index) {
+    const hash = this.getImageHash(poster);
+    const title = this.getPosterTitle(poster) || this.formatPosterName(poster.name || 'Untitled');
+    const venueName = this.getVenueName(poster) || '-';
+    const createdAt = poster.createdAt ? new Date(poster.createdAt).toLocaleDateString('en-AU') : '-';
+
+    // Performers (all artists)
+    const performersHtml = this.renderArtists(poster);
+
+    // Date range
+    const eventDates = poster.event_dates || [];
+    let dateRangeHtml;
+    if (eventDates.length > 1) {
+      dateRangeHtml = `<span class="td-date-range">${this.escapeHtml(eventDates[0])} &ndash; ${this.escapeHtml(eventDates[eventDates.length - 1])}</span>`;
+    } else {
+      dateRangeHtml = this.escapeHtml(this.getEventDate(poster) || '-');
+    }
+
+    return `
+      <tr data-index="${index}">
+        <td class="td-thumbnail">${this.renderThumbnailHtml(hash, title)}</td>
+        <td class="td-name">${this.renderNameCellHtml(title, hash)}</td>
+        <td class="artists-cell">${performersHtml}</td>
+        <td class="venue-cell">${this.renderVenueLinkHtml(venueName)}</td>
+        <td>${dateRangeHtml}</td>
+        <td>${createdAt}</td>
+        <td class="td-row-actions">${this.renderActionBtnHtml(index)}</td>
+      </tr>
+    `;
+  }
+
+  /**
+   * Render row for comedy/theater (performer + venue + date)
+   */
+  renderPerformerRow(poster, index) {
+    const hash = this.getImageHash(poster);
+    const title = this.getPosterTitle(poster) || this.formatPosterName(poster.name || 'Untitled');
+    const venueName = this.getVenueName(poster) || '-';
+    const eventDate = this.getEventDate(poster) || '-';
+    const createdAt = poster.createdAt ? new Date(poster.createdAt).toLocaleDateString('en-AU') : '-';
+
+    // Performer (headliner)
+    const performerHtml = this.renderArtists(poster);
+
+    return `
+      <tr data-index="${index}">
+        <td class="td-thumbnail">${this.renderThumbnailHtml(hash, title)}</td>
+        <td class="td-name">${this.renderNameCellHtml(title, hash)}</td>
+        <td class="artists-cell">${performerHtml}</td>
+        <td class="venue-cell">${this.renderVenueLinkHtml(venueName)}</td>
+        <td>${this.escapeHtml(eventDate)}</td>
+        <td>${createdAt}</td>
+        <td class="td-row-actions">${this.renderActionBtnHtml(index)}</td>
+      </tr>
+    `;
+  }
+
+  /**
+   * Render only the headliner artist(s)
+   */
+  renderHeadlinerOnly(poster) {
+    const artistRels = poster.artistRelationships;
+    if (artistRels && artistRels.length > 0) {
+      const headliners = artistRels.filter(r => r.relationType === 'HEADLINED_ON');
+      if (headliners.length > 0) {
+        return headliners.map(rel =>
+          `<a href="#" class="entity-link artist-link headliner" data-type="artist" data-value="${this.escapeHtml(rel.displayName)}">${this.escapeHtml(rel.displayName)}</a>`
+        ).join(', ');
+      }
+    }
+
+    // Fallback to flat fields
+    const parsed = this.parseObservations(poster);
+    let headliner = poster.headliner || parsed.headliner;
+    if (headliner && !headliner.toLowerCase().includes('none') && !headliner.toLowerCase().includes('not specified')) {
+      return `<a href="#" class="entity-link artist-link headliner" data-type="artist" data-value="${this.escapeHtml(headliner)}">${this.escapeHtml(headliner)}</a>`;
+    }
+    return '-';
+  }
+
+  /**
+   * Render only supporting acts
+   */
+  renderSupportingOnly(poster) {
+    const artistRels = poster.artistRelationships;
+    if (artistRels && artistRels.length > 0) {
+      const supporting = artistRels.filter(r => r.relationType === 'PERFORMED_ON');
+      if (supporting.length > 0) {
+        const display = supporting.slice(0, 3);
+        let html = display.map(rel =>
+          `<a href="#" class="entity-link artist-link supporting" data-type="artist" data-value="${this.escapeHtml(rel.displayName)}">${this.escapeHtml(rel.displayName)}</a>`
+        ).join(', ');
+        if (supporting.length > 3) {
+          html += ` <span class="more-artists">+${supporting.length - 3}</span>`;
+        }
+        return html;
+      }
+    }
+
+    // Fallback to flat fields
+    const parsed = this.parseObservations(poster);
+    let supporting = poster.supporting_acts || [];
+    if (supporting.length === 0 && parsed.supporting_acts) {
+      const s = parsed.supporting_acts;
+      if (!s.toLowerCase().includes('none') && !s.toLowerCase().includes('not specified')) {
+        supporting = s.split(',').map(a => a.trim()).filter(a => a);
+      }
+    }
+
+    if (supporting.length > 0) {
+      const display = supporting.slice(0, 3);
+      let html = display.map(artist =>
+        `<a href="#" class="entity-link artist-link supporting" data-type="artist" data-value="${this.escapeHtml(artist)}">${this.escapeHtml(artist)}</a>`
+      ).join(', ');
+      if (supporting.length > 3) {
+        html += ` <span class="more-artists">+${supporting.length - 3}</span>`;
+      }
+      return html;
+    }
+    return '-';
   }
 
   /**
@@ -1122,7 +1668,7 @@ class PosterApp {
     const entityType = poster.entityType || 'Poster';
     const posterType = this.getPosterType(poster);
     const observations = poster.observations || [];
-    const createdAt = poster.createdAt ? new Date(poster.createdAt).toLocaleString() : 'Unknown';
+    const createdAt = poster.createdAt ? new Date(poster.createdAt).toLocaleString('en-AU') : 'Unknown';
     const id = poster.id || 'N/A';
     const visualElements = poster.visual_elements || {};
     const hash = this.getImageHash(poster);
@@ -1356,7 +1902,7 @@ class PosterApp {
     const scoreClass = completeness >= 80 ? 'score-good' : completeness >= 50 ? 'score-warning' : 'score-bad';
 
     let html = `
-      <td colspan="8" class="td-results-panel">
+      <td colspan="${this.getColumnCount()}" class="td-results-panel">
         <div class="row-results-panel">
           <div class="row-results-header">
             <div>
@@ -1437,7 +1983,7 @@ class PosterApp {
     this.closeRowResults(index);
 
     const html = `
-      <td colspan="8" class="td-results-panel">
+      <td colspan="${this.getColumnCount()}" class="td-results-panel">
         <div class="row-results-panel">
           <div class="row-results-header">
             <div class="results-loading">
@@ -1460,7 +2006,7 @@ class PosterApp {
     this.closeRowResults(index);
 
     const html = `
-      <td colspan="8" class="td-results-panel">
+      <td colspan="${this.getColumnCount()}" class="td-results-panel">
         <div class="row-results-panel results-error">
           <div class="row-results-header">
             <span class="results-error-text">${this.escapeHtml(message)}</span>
@@ -1487,7 +2033,7 @@ class PosterApp {
     const statusClass = status === 'validated' ? 'status-validated' : status === 'warning' ? 'status-warning' : status === 'mismatch' ? 'status-mismatch' : 'status-unverified';
 
     let html = `
-      <td colspan="8" class="td-results-panel">
+      <td colspan="${this.getColumnCount()}" class="td-results-panel">
         <div class="row-results-panel">
           <div class="row-results-header">
             <div>

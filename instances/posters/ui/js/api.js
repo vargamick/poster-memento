@@ -59,7 +59,8 @@ export class PosterAPI {
       offset = 0,
       search = '',
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      posterType
     } = options;
 
     const params = new URLSearchParams({
@@ -77,7 +78,19 @@ export class PosterAPI {
       params.set('sortOrder', sortOrder);
     }
 
+    if (posterType) {
+      params.set('posterType', posterType);
+    }
+
     return this.request(`/api/v1/entities?${params}`);
+  }
+
+  /**
+   * Get poster type counts for subtab badges
+   * @returns {Promise<object>} Type counts data
+   */
+  async getTypeCounts() {
+    return this.request('/api/v1/posters/type-counts');
   }
 
   /**

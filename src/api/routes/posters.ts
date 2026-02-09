@@ -28,6 +28,8 @@ import { KnowledgeGraphManager, type Relation } from '../../KnowledgeGraphManage
 import { logger } from '../../utils/logger.js';
 import { ensurePosterTypesSeeded, resetPosterTypeSeedCache } from '../../utils/ensurePosterTypes.js';
 import { createImageStorageFromEnv, ImageStorageService } from '../../image-processor/ImageStorageService.js';
+import type { StorageProvider } from '../../storage/StorageProvider.js';
+import { PosterTypeQueryService } from '../../core/services/PosterTypeQueryService.js';
 import type { TypeInference } from '../../image-processor/types.js';
 
 // Configure multer for file uploads (memory storage)
@@ -70,8 +72,41 @@ async function getProcessor(): Promise<PosterProcessor> {
 /**
  * Create poster processing routes
  */
-export function createPosterRoutes(knowledgeGraphManager: KnowledgeGraphManager): Router {
+export function createPosterRoutes(knowledgeGraphManager: KnowledgeGraphManager, storageProvider?: StorageProvider): Router {
   const router = Router();
+
+  // Create PosterTypeQueryService for type statistics
+  const posterTypeQueryService = storageProvider ? new PosterTypeQueryService(storageProvider) : null;
+
+  /**
+   * GET /posters/type-counts - Get poster count per type
+   */
+  router.get('/type-counts', asyncHandler(async (_req, res) => {
+    if (!posterTypeQueryService) {
+      res.json({ data: { total: 0, types: [] } });
+      return;
+    }
+
+    try {
+      const types = await posterTypeQueryService.getTypeStatistics();
+
+      // Get total poster count
+      const totalCypher = `
+        MATCH (p:Entity {entityType: 'Poster'})
+        WHERE p.validTo IS NULL
+        RETURN count(p) as total
+      `;
+      const totalResult = await (storageProvider as any).runCypher(totalCypher, {});
+      const total = totalResult.records?.[0]?.get('total')?.toInt?.() || totalResult.records?.[0]?.get('total') || 0;
+
+      res.json({
+        data: { total, types }
+      });
+    } catch (error: any) {
+      logger.error('Failed to get type counts:', error);
+      res.json({ data: { total: 0, types: [] } });
+    }
+  }));
 
   /**
    * GET /posters/scan - Scan source directory for images

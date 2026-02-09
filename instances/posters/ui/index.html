@@ -50,6 +50,18 @@
         </div>
       </div>
 
+      <!-- Type Subtabs -->
+      <nav class="subtabs" id="type-subtabs">
+        <button class="subtab-btn active" data-subtab="all">All <span class="subtab-count" id="count-all">--</span></button>
+        <button class="subtab-btn" data-subtab="concert">Concerts <span class="subtab-count" id="count-concert">--</span></button>
+        <button class="subtab-btn" data-subtab="film">Films <span class="subtab-count" id="count-film">--</span></button>
+        <button class="subtab-btn" data-subtab="album">Albums <span class="subtab-count" id="count-album">--</span></button>
+        <button class="subtab-btn" data-subtab="festival">Festivals <span class="subtab-count" id="count-festival">--</span></button>
+        <button class="subtab-btn" data-subtab="comedy">Comedy <span class="subtab-count" id="count-comedy">--</span></button>
+        <button class="subtab-btn" data-subtab="theater">Theater <span class="subtab-count" id="count-theater">--</span></button>
+        <button class="subtab-btn" data-subtab="other">Other <span class="subtab-count" id="count-other">--</span></button>
+      </nav>
+
       <div id="loading" class="loading hidden">
         <div class="spinner"></div>
         <p>Loading posters...</p>
@@ -63,16 +75,7 @@
       <div class="table-container">
         <table id="poster-table" class="poster-table">
           <thead>
-            <tr>
-              <th class="th-thumbnail">Image</th>
-              <th class="th-name sortable" data-sort="name">Name <span class="sort-icon"></span></th>
-              <th class="th-type sortable" data-sort="poster_type">Type <span class="sort-icon"></span></th>
-              <th class="th-artists">People</th>
-              <th class="th-venue sortable" data-sort="venue_name">Venue <span class="sort-icon"></span></th>
-              <th class="th-date sortable" data-sort="event_date">Date <span class="sort-icon"></span></th>
-              <th class="th-added sortable active desc" data-sort="createdAt">Added <span class="sort-icon"></span></th>
-              <th class="th-row-actions">Actions</th>
-            </tr>
+            <!-- Dynamic headers rendered by JS based on active subtab -->
           </thead>
           <tbody id="poster-tbody">
             <!-- Poster rows rendered here -->
