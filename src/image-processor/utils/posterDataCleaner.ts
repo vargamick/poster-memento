@@ -341,8 +341,32 @@ const MONTH_NAMES: Record<string, number> = {
 };
 
 /**
+ * Pre-process a date string: strip day-of-week prefixes, ordinal suffixes,
+ * and extra whitespace to give the regex patterns a clean input.
+ */
+function preprocessDateString(value: string): string {
+  let cleaned = value.trim();
+
+  // Strip leading day-of-week (e.g., "Sat 17th September" → "17th September")
+  cleaned = cleaned.replace(
+    /^(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)[,.\s]+/i,
+    ''
+  );
+
+  // Strip ordinal suffixes (e.g., "17th" → "17", "1st" → "1", "22nd" → "22")
+  cleaned = cleaned.replace(/(\d+)(?:st|nd|rd|th)\b/gi, '$1');
+
+  // Collapse multiple spaces
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+
+  return cleaned;
+}
+
+/**
  * Normalize a date string to DD/MM/YYYY format (EN-AU)
- * Returns null if the date cannot be parsed
+ * Returns null if the date cannot be parsed.
+ * Handles ordinal suffixes (17th), day-of-week prefixes (Sat),
+ * and partial dates (Month DD without year → DD/MM).
  */
 export function normalizeDate(rawDate: string | undefined | null): string | null {
   if (!rawDate || typeof rawDate !== 'string') return null;
@@ -351,7 +375,7 @@ export function normalizeDate(rawDate: string | undefined | null): string | null
   const { cleanedValue } = extractCommentary(rawDate);
   if (!cleanedValue) return null;
 
-  const value = cleanedValue.trim();
+  const value = preprocessDateString(cleanedValue);
 
   // Skip if it's a very short number that's not a valid date (e.g., "6453")
   if (/^\d{1,5}$/.test(value) && !value.includes('/') && !value.includes('-')) {
@@ -410,55 +434,55 @@ export function normalizeDate(rawDate: string | undefined | null): string | null
     }
   }
 
-  // Month DD, YYYY (e.g., "March 31, 1995")
-  match = value.match(/^(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2}),?\s+(\d{4})$/i);
+  // Month DD, YYYY (e.g., "March 31, 1995") — also handles without year: "March 31"
+  match = value.match(/^(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2}),?\s*(\d{4})?$/i);
   if (match) {
     const [, monthName, day, year] = match;
     const month = MONTH_NAMES[monthName.toLowerCase()];
-    if (month && isValidDate(parseInt(day), month, parseInt(year))) {
-      return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
+    if (month && parseInt(day) >= 1 && parseInt(day) <= 31) {
+      if (year && isValidDate(parseInt(day), month, parseInt(year))) {
+        return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
+      }
+      // Partial date without year
+      return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}`;
     }
   }
 
-  // DD Month YYYY (e.g., "31 March 1995")
-  match = value.match(/^(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{4})$/i);
-  if (match) {
-    const [, day, monthName, year] = match;
-    const month = MONTH_NAMES[monthName.toLowerCase()];
-    if (month && isValidDate(parseInt(day), month, parseInt(year))) {
-      return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
-    }
-  }
-
-  // Abbreviated month: DD Mon YYYY or Mon DD, YYYY
-  match = value.match(/^(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\s+(\d{4})$/i);
-  if (match) {
-    const [, day, monthName, year] = match;
-    const month = MONTH_NAMES[monthName.toLowerCase()];
-    if (month && isValidDate(parseInt(day), month, parseInt(year))) {
-      return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
-    }
-  }
-
-  match = value.match(/^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\s+(\d{1,2}),?\s+(\d{4})$/i);
-  if (match) {
-    const [, monthName, day, year] = match;
-    const month = MONTH_NAMES[monthName.toLowerCase()];
-    if (month && isValidDate(parseInt(day), month, parseInt(year))) {
-      return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
-    }
-  }
-
-  // Day, DD Month YYYY (e.g., "Fri, 20 April")
-  match = value.match(/^(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s*(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)(?:\s+(\d{4}))?$/i);
+  // DD Month YYYY (e.g., "31 March 1995") — also handles without year: "31 March"
+  match = value.match(/^(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december),?\s*(\d{4})?$/i);
   if (match) {
     const [, day, monthName, year] = match;
     const month = MONTH_NAMES[monthName.toLowerCase()];
     if (month && parseInt(day) >= 1 && parseInt(day) <= 31) {
-      if (year) {
+      if (year && isValidDate(parseInt(day), month, parseInt(year))) {
         return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
       }
-      // No year - return partial date
+      return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}`;
+    }
+  }
+
+  // Abbreviated month: DD Mon YYYY or DD Mon (e.g., "31 Mar 1995", "25 Aug")
+  match = value.match(/^(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?,?\s*(\d{4})?$/i);
+  if (match) {
+    const [, day, monthName, year] = match;
+    const month = MONTH_NAMES[monthName.toLowerCase()];
+    if (month && parseInt(day) >= 1 && parseInt(day) <= 31) {
+      if (year && isValidDate(parseInt(day), month, parseInt(year))) {
+        return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
+      }
+      return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}`;
+    }
+  }
+
+  // Mon DD, YYYY or Mon DD (e.g., "Mar 31, 1995", "Aug 25")
+  match = value.match(/^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+(\d{1,2}),?\s*(\d{4})?$/i);
+  if (match) {
+    const [, monthName, day, year] = match;
+    const month = MONTH_NAMES[monthName.toLowerCase()];
+    if (month && parseInt(day) >= 1 && parseInt(day) <= 31) {
+      if (year && isValidDate(parseInt(day), month, parseInt(year))) {
+        return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
+      }
       return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}`;
     }
   }

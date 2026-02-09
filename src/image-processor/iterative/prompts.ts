@@ -506,16 +506,34 @@ Return JSON:
 
   festival: `Extract event details from this FESTIVAL poster.
 
+IMPORTANT OUTPUT RULES:
+- Dates MUST be in DD/MM/YYYY format (e.g., 15/03/2024)
+- If year unknown, use DD/MM only (e.g., 15/03)
+- If ONLY a year is visible, still include it in the "year" field
+- Leave fields empty if not visible - do NOT write "not specified" or similar
+- CRITICAL: If the poster shows MULTIPLE specific dates, list EACH as a separate entry in the "shows" array
+- For multi-day festivals, create one entry per day in the "shows" array
+
 Look for:
-- DATES: Festival dates (often multi-day)
+- DATES: All festival dates (often multi-day, e.g., "Sat 17th & Sun 18th September")
 - YEAR: Festival year
 - TIMES: Gate times
 - TICKET INFO: Pricing tiers
 
 Return JSON:
 {
-  "start_date": "first day",
-  "end_date": "last day",
+  "shows": [
+    {
+      "event_date": "DD/MM/YYYY",
+      "day_of_week": "Saturday"
+    },
+    {
+      "event_date": "DD/MM/YYYY",
+      "day_of_week": "Sunday"
+    }
+  ],
+  "start_date": "first day DD/MM/YYYY",
+  "end_date": "last day DD/MM/YYYY",
   "year": 2024,
   "gate_time": "gates open time",
   "ticket_price": "price or tier info"

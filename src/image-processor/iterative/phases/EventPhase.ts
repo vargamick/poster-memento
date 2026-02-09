@@ -27,14 +27,146 @@ const DATE_PATTERNS = [
   { regex: /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/, order: ['month', 'day', 'year'] },
   { regex: /(\d{1,2})-(\d{1,2})-(\d{2,4})/, order: ['month', 'day', 'year'] },
   { regex: /(\d{1,2})\.(\d{1,2})\.(\d{2,4})/, order: ['day', 'month', 'year'] },
-  // Month name formats
+  // Month name formats (full month names)
   { regex: /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})?/i, order: ['month_name', 'day', 'year'] },
+  // Abbreviated month names
   { regex: /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})?/i, order: ['month_name', 'day', 'year'] },
-  // Day first formats
+  // Day first formats (e.g., "17th September 2005", "27 April")
   { regex: /(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december),?\s*(\d{4})?/i, order: ['day', 'month_name', 'year'] },
+  { regex: /(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\.?,?\s*(\d{4})?/i, order: ['day', 'month_name', 'year'] },
   // Year only
   { regex: /\b(19[6-9]\d|20[0-2]\d)\b/, order: ['year'] },
 ];
+
+/**
+ * Full month name pattern for shared month detection
+ */
+const MONTH_PATTERN = /\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i;
+
+/**
+ * Day-of-week pattern to strip from date strings before parsing
+ */
+const DAY_OF_WEEK_PREFIX = /^(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)[,.\s]*/i;
+
+/**
+ * Extract day-of-week from a date string segment
+ */
+function extractDayOfWeek(segment: string): string | undefined {
+  const match = segment.match(/^(mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)/i);
+  if (!match) return undefined;
+  const abbrev = match[1].substring(0, 3).toLowerCase();
+  const dayMap: Record<string, string> = {
+    mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday',
+    thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday',
+  };
+  return dayMap[abbrev];
+}
+
+/**
+ * Split a multi-date string into individual date segments.
+ *
+ * Separator semantics:
+ * - "&", "and", "," → individual discrete dates
+ * - "/" when between day-of-week+date patterns → individual dates (e.g., "Fri 27 April / Sat 28 April")
+ * - "-", "to" → date range (expand each day between start and end)
+ *
+ * Returns an array of { dateStr, dayOfWeek } for each individual date.
+ * If the string contains a shared month/year trailing component, it is
+ * distributed to each segment (e.g., "17th & 18th September, 2005"
+ * becomes ["17th September, 2005", "18th September, 2005"]).
+ */
+function splitMultiDateString(raw: string): { dateStr: string; dayOfWeek?: string }[] {
+  const trimmed = raw.trim();
+
+  // Quick check: if no separator present, return as-is
+  if (!/[&,\/]|\band\b|\bto\b/i.test(trimmed)) {
+    const dow = extractDayOfWeek(trimmed);
+    return [{ dateStr: trimmed, dayOfWeek: dow }];
+  }
+
+  // Extract a trailing shared year (e.g., ", 2005" at the end)
+  let sharedYear = '';
+  let body = trimmed;
+  const trailingYearMatch = body.match(/,?\s*((?:19|20)\d{2})\s*$/);
+  if (trailingYearMatch) {
+    sharedYear = trailingYearMatch[1];
+    body = body.substring(0, body.length - trailingYearMatch[0].length).trim();
+  }
+
+  // Extract a trailing shared month (e.g., "September" at the end after removing year)
+  let sharedMonth = '';
+  const trailingMonthMatch = body.match(/,?\s*(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s*$/i);
+  if (trailingMonthMatch) {
+    sharedMonth = trailingMonthMatch[1];
+    body = body.substring(0, body.length - trailingMonthMatch[0].length).trim();
+  }
+
+  // Detect range separators: "17th - 18th", "17 to 19"
+  // Only treat "-" as range when it separates day numbers (not "DD-MM-YYYY" style)
+  const rangeMatch = body.match(/^(.+?)\s*(?:-|–|to)\s*(.+)$/i);
+  if (rangeMatch && sharedMonth) {
+    const startPart = rangeMatch[1].trim();
+    const endPart = rangeMatch[2].trim();
+
+    // Check if both parts are simple day numbers (possibly with ordinals and day-of-week)
+    const startDayMatch = startPart.replace(DAY_OF_WEEK_PREFIX, '').match(/^(\d{1,2})(?:st|nd|rd|th)?$/i);
+    const endDayMatch = endPart.replace(DAY_OF_WEEK_PREFIX, '').match(/^(\d{1,2})(?:st|nd|rd|th)?$/i);
+
+    if (startDayMatch && endDayMatch) {
+      const startDay = parseInt(startDayMatch[1], 10);
+      const endDay = parseInt(endDayMatch[1], 10);
+
+      if (endDay >= startDay && (endDay - startDay) < 14) {
+        const results: { dateStr: string; dayOfWeek?: string }[] = [];
+        for (let d = startDay; d <= endDay; d++) {
+          const fullDate = sharedYear
+            ? `${d} ${sharedMonth} ${sharedYear}`
+            : `${d} ${sharedMonth}`;
+          results.push({ dateStr: fullDate });
+        }
+        return results;
+      }
+    }
+  }
+
+  // Split on individual-date separators: &, "and", ","
+  // Also split on "/" when it separates date-like segments (not DD/MM/YYYY)
+  let segments: string[];
+
+  // Check if "/" is a date separator (e.g., "Fri 27 April / Sat 28 April")
+  // vs. a date format separator (e.g., "27/04/2005")
+  const slashIsDateSep = /[a-z]\s*\/\s*[a-z]/i.test(body) ||
+    /\d\s+\w+\s*\/\s*\w+\s+\d/.test(body);
+
+  const splitPattern = slashIsDateSep
+    ? /\s*(?:&|,|\band\b|\/)\s*/i
+    : /\s*(?:&|,|\band\b)\s*/i;
+
+  segments = body.split(splitPattern).map(s => s.trim()).filter(s => s.length > 0);
+
+  if (segments.length <= 1) {
+    // No effective split — return original
+    const dow = extractDayOfWeek(trimmed);
+    return [{ dateStr: trimmed, dayOfWeek: dow }];
+  }
+
+  // Distribute shared month/year to segments that lack them
+  return segments.map(seg => {
+    const dow = extractDayOfWeek(seg);
+    let datePart = seg.replace(DAY_OF_WEEK_PREFIX, '').trim();
+
+    // If segment doesn't contain a month, append shared month
+    if (sharedMonth && !MONTH_PATTERN.test(datePart)) {
+      datePart = `${datePart} ${sharedMonth}`;
+    }
+    // If segment doesn't contain a year, append shared year
+    if (sharedYear && !/(?:19|20)\d{2}/.test(datePart)) {
+      datePart = `${datePart} ${sharedYear}`;
+    }
+
+    return { dateStr: datePart.trim(), dayOfWeek: dow };
+  });
+}
 
 const MONTH_NAMES: Record<string, number> = {
   january: 1, jan: 1,
@@ -182,6 +314,28 @@ export class EventPhase extends BasePhase<EventPhaseResult> {
   }
 
   /**
+   * Get the raw date string from the parsed vision model response based on poster type.
+   * Does NOT parse it — just returns the string for further processing.
+   */
+  private getRawDateString(
+    parsed: Record<string, unknown>,
+    posterType: PosterType
+  ): string | undefined {
+    switch (posterType) {
+      case 'album':
+      case 'film':
+        return this.normalizeString(parsed.release_date);
+      case 'theater':
+      case 'exhibition':
+        return this.normalizeString(parsed.opening_date);
+      case 'festival':
+        return this.normalizeString(parsed.start_date);
+      default:
+        return this.normalizeString(parsed.event_date);
+    }
+  }
+
+  /**
    * Extract and parse date information
    */
   private extractDateInfo(
@@ -189,27 +343,7 @@ export class EventPhase extends BasePhase<EventPhaseResult> {
     posterType: PosterType
   ): DateInfo | undefined {
     // Try to get raw date value based on poster type
-    let rawDate: string | undefined;
-
-    switch (posterType) {
-      case 'album':
-        rawDate = this.normalizeString(parsed.release_date);
-        break;
-      case 'film':
-        rawDate = this.normalizeString(parsed.release_date);
-        break;
-      case 'theater':
-        rawDate = this.normalizeString(parsed.opening_date);
-        break;
-      case 'exhibition':
-        rawDate = this.normalizeString(parsed.opening_date);
-        break;
-      case 'festival':
-        rawDate = this.normalizeString(parsed.start_date);
-        break;
-      default:
-        rawDate = this.normalizeString(parsed.event_date);
-    }
+    const rawDate = this.getRawDateString(parsed, posterType);
 
     // Also check for year directly
     let year = this.extractYear(parsed.year);
@@ -248,6 +382,8 @@ export class EventPhase extends BasePhase<EventPhaseResult> {
   /**
    * Extract multiple shows from the vision model response.
    * Falls back to single-date extraction if no "shows" array is present.
+   * When a single concatenated date string is found (e.g., "Fri 27 & Sat 28 April"),
+   * splits it into individual shows using separator semantics.
    * Creates a show even for year-only data.
    */
   private extractShows(
@@ -265,21 +401,24 @@ export class EventPhase extends BasePhase<EventPhaseResult> {
 
         const rawDate = this.normalizeString(showData.event_date);
         if (rawDate) {
-          const dateInfo = this.parseDate(rawDate);
-          if (dateInfo) {
-            // Apply shared year if the individual date doesn't have one
-            if (!dateInfo.year && sharedYear) {
-              dateInfo.year = sharedYear;
+          // Try splitting in case the model put a multi-date string in a single show entry
+          const splitDates = splitMultiDateString(rawDate);
+          for (const { dateStr, dayOfWeek } of splitDates) {
+            const dateInfo = this.parseDate(dateStr);
+            if (dateInfo) {
+              if (!dateInfo.year && sharedYear) {
+                dateInfo.year = sharedYear;
+              }
+              shows.push({
+                date: dateInfo,
+                dayOfWeek: dayOfWeek ?? this.normalizeString(showData.day_of_week),
+                doorTime: this.normalizeString(showData.door_time),
+                showTime: this.normalizeString(showData.show_time),
+                ticketPrice: this.normalizeString(showData.ticket_price),
+                ageRestriction: this.normalizeString(showData.age_restriction),
+                showNumber: shows.length + 1,
+              });
             }
-            shows.push({
-              date: dateInfo,
-              dayOfWeek: this.normalizeString(showData.day_of_week),
-              doorTime: this.normalizeString(showData.door_time),
-              showTime: this.normalizeString(showData.show_time),
-              ticketPrice: this.normalizeString(showData.ticket_price),
-              ageRestriction: this.normalizeString(showData.age_restriction),
-              showNumber: i + 1,
-            });
           }
         }
       }
@@ -290,19 +429,47 @@ export class EventPhase extends BasePhase<EventPhaseResult> {
       return shows;
     }
 
-    // Fallback: extract single date using the existing method
+    // Fallback: get raw date string and try multi-date splitting
+    const rawDateStr = this.getRawDateString(parsed, posterType);
+    const sharedTimeDetails = {
+      doorTime: this.normalizeString(parsed.door_time || parsed.doors),
+      showTime: this.normalizeString(parsed.show_time || parsed.showtimes),
+      ticketPrice: this.normalizeString(parsed.ticket_price),
+      ageRestriction: this.normalizeString(parsed.age_restriction),
+    };
+
+    if (rawDateStr) {
+      const splitDates = splitMultiDateString(rawDateStr);
+
+      for (const { dateStr, dayOfWeek } of splitDates) {
+        const dateInfo = this.parseDate(dateStr);
+        if (dateInfo) {
+          if (!dateInfo.year && sharedYear) {
+            dateInfo.year = sharedYear;
+          }
+          shows.push({
+            date: dateInfo,
+            dayOfWeek: dayOfWeek,
+            ...sharedTimeDetails,
+            showNumber: shows.length + 1,
+          });
+        }
+      }
+
+      if (shows.length > 0) {
+        return shows;
+      }
+    }
+
+    // If splitting didn't help, try the original single-date extraction
     const dateInfo = this.extractDateInfo(parsed, posterType);
     if (dateInfo) {
-      // Apply shared year if needed
       if (!dateInfo.year && sharedYear) {
         dateInfo.year = sharedYear;
       }
       shows.push({
         date: dateInfo,
-        doorTime: this.normalizeString(parsed.door_time || parsed.doors),
-        showTime: this.normalizeString(parsed.show_time || parsed.showtimes),
-        ticketPrice: this.normalizeString(parsed.ticket_price),
-        ageRestriction: this.normalizeString(parsed.age_restriction),
+        ...sharedTimeDetails,
         showNumber: 1,
       });
       return shows;
