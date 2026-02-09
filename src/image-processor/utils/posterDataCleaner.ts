@@ -341,15 +341,24 @@ const MONTH_NAMES: Record<string, number> = {
 };
 
 /**
- * Pre-process a date string: strip day-of-week prefixes, ordinal suffixes,
- * and extra whitespace to give the regex patterns a clean input.
+ * Pre-process a date string: strip day-of-week prefixes/suffixes, ordinal suffixes,
+ * prefix words like "Until", and extra whitespace to give the regex patterns a clean input.
  */
 function preprocessDateString(value: string): string {
   let cleaned = value.trim();
 
+  // Strip leading prefix words (e.g., "Until 16 January 2008" → "16 January 2008")
+  cleaned = cleaned.replace(/^(?:until|from|on|starting|ending|begins?|ends?)\s+/i, '');
+
   // Strip leading day-of-week (e.g., "Sat 17th September" → "17th September")
   cleaned = cleaned.replace(
     /^(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)[,.\s]+/i,
+    ''
+  );
+
+  // Strip trailing day-of-week (e.g., "July 5th Saturday" → "July 5th")
+  cleaned = cleaned.replace(
+    /[,.\s]+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)$/i,
     ''
   );
 
@@ -434,6 +443,25 @@ export function normalizeDate(rawDate: string | undefined | null): string | null
     }
   }
 
+  // DD.MM.YYYY (dot-separated, e.g., "17.10.2005")
+  match = value.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (match) {
+    const [, day, month, year] = match;
+    if (isValidDate(parseInt(day), parseInt(month), parseInt(year))) {
+      return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
+    }
+  }
+
+  // DD.MM.YY (dot-separated, 2-digit year, e.g., "17.10.05", "02.09.06")
+  match = value.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2})$/);
+  if (match) {
+    const [, day, month, shortYear] = match;
+    const year = parseInt(shortYear) > 50 ? `19${shortYear}` : `20${shortYear}`;
+    if (isValidDate(parseInt(day), parseInt(month), parseInt(year))) {
+      return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
+    }
+  }
+
   // Month DD, YYYY (e.g., "March 31, 1995") — also handles without year: "March 31"
   match = value.match(/^(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2}),?\s*(\d{4})?$/i);
   if (match) {
@@ -484,6 +512,50 @@ export function normalizeDate(rawDate: string | undefined | null): string | null
         return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
       }
       return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}`;
+    }
+  }
+
+  // DD Month YY (full month, 2-digit year, e.g., "17 July 08")
+  match = value.match(/^(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{2})$/i);
+  if (match) {
+    const [, day, monthName, shortYear] = match;
+    const month = MONTH_NAMES[monthName.toLowerCase()];
+    const year = parseInt(shortYear) > 50 ? `19${shortYear}` : `20${shortYear}`;
+    if (month && isValidDate(parseInt(day), month, parseInt(year))) {
+      return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
+    }
+  }
+
+  // Month DD YY (full month, 2-digit year, e.g., "July 17 08")
+  match = value.match(/^(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2}),?\s+(\d{2})$/i);
+  if (match) {
+    const [, monthName, day, shortYear] = match;
+    const month = MONTH_NAMES[monthName.toLowerCase()];
+    const year = parseInt(shortYear) > 50 ? `19${shortYear}` : `20${shortYear}`;
+    if (month && isValidDate(parseInt(day), month, parseInt(year))) {
+      return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
+    }
+  }
+
+  // DD Mon YY (abbreviated month, 2-digit year, e.g., "17 Jul 08")
+  match = value.match(/^(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+(\d{2})$/i);
+  if (match) {
+    const [, day, monthName, shortYear] = match;
+    const month = MONTH_NAMES[monthName.toLowerCase()];
+    const year = parseInt(shortYear) > 50 ? `19${shortYear}` : `20${shortYear}`;
+    if (month && isValidDate(parseInt(day), month, parseInt(year))) {
+      return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
+    }
+  }
+
+  // Mon DD YY (abbreviated month, 2-digit year, e.g., "Jul 17 08")
+  match = value.match(/^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+(\d{1,2}),?\s+(\d{2})$/i);
+  if (match) {
+    const [, monthName, day, shortYear] = match;
+    const month = MONTH_NAMES[monthName.toLowerCase()];
+    const year = parseInt(shortYear) > 50 ? `19${shortYear}` : `20${shortYear}`;
+    if (month && isValidDate(parseInt(day), month, parseInt(year))) {
+      return `${day.padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
     }
   }
 
@@ -573,7 +645,8 @@ export function splitMultiDateString(raw: string): { dateStr: string; dayOfWeek?
   const trimmed = raw.trim();
 
   // Quick check: if no separator present, return as-is
-  if (!/[&,\/]|\band\b|\bto\b/i.test(trimmed)) {
+  // Includes range separators: spaced hyphens, digit-hyphen-digit, "to"
+  if (!/[&,\/]|\band\b|\bto\b|\s[-–]\s|\d\s*[-–]\s*\d/i.test(trimmed)) {
     const dow = extractDayOfWeek(trimmed);
     return [{ dateStr: trimmed, dayOfWeek: dow }];
   }
@@ -587,6 +660,22 @@ export function splitMultiDateString(raw: string): { dateStr: string; dayOfWeek?
     body = body.substring(0, body.length - trailingYearMatch[0].length).trim();
   }
 
+  // Extract trailing 2-digit year when preceded by a month name (e.g., "17-27 July 08")
+  // Only do this if the text before "month YY" doesn't contain another month name,
+  // otherwise "14" in "July 15 - August 14" would be mistaken for a year.
+  if (!sharedYear) {
+    const twoDigitYearMatch = body.match(/((?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?)\s+(\d{2})\s*$/i);
+    if (twoDigitYearMatch) {
+      const beforePart = body.substring(0, body.length - twoDigitYearMatch[0].length).trim();
+      if (!MULTI_DATE_MONTH_PATTERN.test(beforePart)) {
+        const yy = parseInt(twoDigitYearMatch[2], 10);
+        sharedYear = yy > 50 ? `19${twoDigitYearMatch[2]}` : `20${twoDigitYearMatch[2]}`;
+        body = beforePart + ' ' + twoDigitYearMatch[1];
+        body = body.trim();
+      }
+    }
+  }
+
   // Extract a trailing shared month (e.g., "September" at the end after removing year)
   let sharedMonth = '';
   const trailingMonthMatch = body.match(/,?\s*(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s*$/i);
@@ -595,9 +684,24 @@ export function splitMultiDateString(raw: string): { dateStr: string; dayOfWeek?
     body = body.substring(0, body.length - trailingMonthMatch[0].length).trim();
   }
 
-  // Detect range separators: "17th - 18th", "17 to 19"
-  // Only treat "-" as range when it separates day numbers (not "DD-MM-YYYY" style)
-  const rangeMatch = body.match(/^(.+?)\s*(?:-|–|to)\s*(.+)$/i);
+  // Extract a leading shared month when body is "Month DD-DD" (e.g., "December 8-31")
+  if (!sharedMonth) {
+    const leadingMonthMatch = body.match(/^(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+/i);
+    if (leadingMonthMatch) {
+      const rest = body.substring(leadingMonthMatch[0].length).trim();
+      // Only treat as leading shared month if remainder is a pure number range
+      if (/^\d{1,2}(?:st|nd|rd|th)?\s*[-–]\s*\d{1,2}(?:st|nd|rd|th)?$/.test(rest)) {
+        sharedMonth = leadingMonthMatch[1];
+        body = rest;
+      }
+    }
+  }
+
+  // Detect range separators: "17th - 18th", "17 to 19", "16-28"
+  // Use \b on "to" to avoid matching inside words like "October"
+  const rangeMatch = body.match(/^(.+?)\s*(?:-|–|\bto\b)\s*(.+)$/i);
+
+  // Day-range with shared month: expand individual dates
   if (rangeMatch && sharedMonth) {
     const startPart = rangeMatch[1].trim();
     const endPart = rangeMatch[2].trim();
@@ -609,16 +713,65 @@ export function splitMultiDateString(raw: string): { dateStr: string; dayOfWeek?
       const startDay = parseInt(startDayMatch[1], 10);
       const endDay = parseInt(endDayMatch[1], 10);
 
-      if (endDay >= startDay && (endDay - startDay) < 14) {
+      if (endDay >= startDay) {
         const results: { dateStr: string; dayOfWeek?: string }[] = [];
-        for (let d = startDay; d <= endDay; d++) {
-          const fullDate = sharedYear
-            ? `${d} ${sharedMonth} ${sharedYear}`
-            : `${d} ${sharedMonth}`;
-          results.push({ dateStr: fullDate });
+        if (endDay - startDay <= 7) {
+          // Short range: expand each day
+          for (let d = startDay; d <= endDay; d++) {
+            const fullDate = sharedYear
+              ? `${d} ${sharedMonth} ${sharedYear}`
+              : `${d} ${sharedMonth}`;
+            results.push({ dateStr: fullDate });
+          }
+        } else {
+          // Long range: return start and end dates
+          const startDate = sharedYear
+            ? `${startDay} ${sharedMonth} ${sharedYear}`
+            : `${startDay} ${sharedMonth}`;
+          const endDate = sharedYear
+            ? `${endDay} ${sharedMonth} ${sharedYear}`
+            : `${endDay} ${sharedMonth}`;
+          results.push({ dateStr: startDate });
+          results.push({ dateStr: endDate });
         }
         return results;
       }
+    }
+  }
+
+  // Full-date range: each side has its own month or one side gets shared month
+  // e.g., "July 15 - August 14", "Friday 26th October - Sunday 28th October",
+  //        "Fri 1 Apr - Sat 9 April", "1 Apr - 9 April"
+  if (rangeMatch) {
+    const startPart = rangeMatch[1].trim();
+    const endPart = rangeMatch[2].trim();
+    const startHasMonth = MULTI_DATE_MONTH_PATTERN.test(startPart);
+    const endHasMonth = MULTI_DATE_MONTH_PATTERN.test(endPart);
+
+    if (startHasMonth || endHasMonth) {
+      const results: { dateStr: string; dayOfWeek?: string }[] = [];
+
+      const startDow = extractDayOfWeek(startPart);
+      let startDate = startPart.replace(DAY_OF_WEEK_PREFIX, '').trim();
+      if (!MULTI_DATE_MONTH_PATTERN.test(startDate) && sharedMonth) {
+        startDate = `${startDate} ${sharedMonth}`;
+      }
+      if (sharedYear && !/(?:19|20)\d{2}/.test(startDate)) {
+        startDate += ` ${sharedYear}`;
+      }
+      results.push({ dateStr: startDate.trim(), dayOfWeek: startDow });
+
+      const endDow = extractDayOfWeek(endPart);
+      let endDate = endPart.replace(DAY_OF_WEEK_PREFIX, '').trim();
+      if (!MULTI_DATE_MONTH_PATTERN.test(endDate) && sharedMonth) {
+        endDate = `${endDate} ${sharedMonth}`;
+      }
+      if (sharedYear && !/(?:19|20)\d{2}/.test(endDate)) {
+        endDate += ` ${sharedYear}`;
+      }
+      results.push({ dateStr: endDate.trim(), dayOfWeek: endDow });
+
+      return results;
     }
   }
 
