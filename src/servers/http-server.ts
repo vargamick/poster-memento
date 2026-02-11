@@ -491,7 +491,7 @@ if (process.env.ADMIN_ENABLED !== 'false') {
 // Poster processing routes (for poster image processing UI)
 if (process.env.POSTER_PROCESSING_ENABLED !== 'false' && knowledgeGraphManager) {
   try {
-    apiV1.use('/posters', createPosterRoutes(knowledgeGraphManager));
+    apiV1.use('/posters', createPosterRoutes(knowledgeGraphManager, storageProvider));
     logger.info('Poster processing routes enabled at /api/v1/posters');
   } catch (error: any) {
     logger.warn('Poster processing routes not initialized', { error: error.message });

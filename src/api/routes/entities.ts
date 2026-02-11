@@ -170,32 +170,82 @@ export function createEntityRoutes(entityService: EntityService, storageProvider
       });
 
     } else if (parsedEntityTypes && parsedEntityTypes.length > 0) {
-      // NEW: List entities by type without search query
-      const result = await entityService.searchEntities('', {
-        limit: parsedLimit,
-        offset: parsedOffset,
-        entityTypes: parsedEntityTypes,
-        expertiseArea: expertiseArea as string,
-        includeValidation: parsedIncludeValidation
-      });
+      // List entities by type without search query
+      const parsedPosterType = posterType as string | undefined;
+      const knownTypes = ['concert', 'film', 'release', 'album', 'festival', 'comedy', 'theater'];
 
-      if (!result.success) {
-        throw new ValidationError('Listing failed', result.errors);
+      // When posterType filter is specified, use DB-level pre-filtering via Cypher
+      // to get the correct paginated results and total count
+      let preFilteredNames: string[] | null = null;
+      let preFilteredTotal: number | null = null;
+
+      if (parsedPosterType && posterTypeQueryService) {
+        try {
+          const sortBy = (req.query.sortBy as string) || 'createdAt';
+          const sortOrder = (req.query.sortOrder as string) || 'desc';
+
+          if (parsedPosterType === 'other') {
+            const result = await posterTypeQueryService.getPosterNamesForOtherType(
+              knownTypes,
+              { limit: parsedLimit, offset: parsedOffset, sortBy, sortOrder }
+            );
+            preFilteredNames = result.names;
+            preFilteredTotal = result.total;
+          } else {
+            const requestedTypes = parsedPosterType.split(',').map(t => t.trim().toLowerCase());
+            const result = await posterTypeQueryService.getPosterNamesForType(
+              requestedTypes,
+              { limit: parsedLimit, offset: parsedOffset, sortBy, sortOrder }
+            );
+            preFilteredNames = result.names;
+            preFilteredTotal = result.total;
+          }
+        } catch (err: any) {
+          logger.error('[entities route] Pre-filter by posterType failed, falling back:', err?.message);
+        }
       }
 
-      let entities = result.data?.entities || [];
+      let entities: any[];
+      let paginationTotal: number;
 
-      // Enrich Poster entities with HAS_TYPE relationships
-      logger.info('[entities route] posterTypeQueryService available:', !!posterTypeQueryService, 'entities count:', entities.length);
+      if (preFilteredNames !== null && preFilteredTotal !== null) {
+        // Fetch only the pre-filtered entities by name using storageProvider.openNodes
+        if (preFilteredNames.length === 0 || !storageProvider) {
+          entities = [];
+        } else {
+          const graph = await storageProvider.openNodes(preFilteredNames);
+          // Preserve order from the Cypher query
+          const entityMap = new Map(graph.entities.map(e => [e.name, e]));
+          entities = preFilteredNames
+            .map(name => entityMap.get(name))
+            .filter((e): e is NonNullable<typeof e> => e != null);
+        }
+        paginationTotal = preFilteredTotal;
+      } else {
+        // No posterType filter - use standard pagination
+        const result = await entityService.searchEntities('', {
+          limit: parsedLimit,
+          offset: parsedOffset,
+          entityTypes: parsedEntityTypes,
+          expertiseArea: expertiseArea as string,
+          includeValidation: parsedIncludeValidation
+        });
+
+        if (!result.success) {
+          throw new ValidationError('Listing failed', result.errors);
+        }
+
+        entities = result.data?.entities || [];
+        paginationTotal = (result.data as any)?.pagination?.total ?? result.data?.entities.length ?? 0;
+      }
+
+      // Enrich Poster entities with HAS_TYPE and artist relationships
       if (posterTypeQueryService && entities.length > 0) {
         const posterEntities = entities.filter(e => e.entityType === 'Poster');
-        logger.info('[entities route] Poster entities to enrich:', posterEntities.length);
         if (posterEntities.length > 0) {
           try {
             let enrichedPosters = await posterTypeQueryService.enrichPostersWithTypes(posterEntities);
-            // Also enrich with artist relationships
             enrichedPosters = await posterTypeQueryService.enrichPostersWithArtists(enrichedPosters);
-            logger.info('[entities route] Enriched posters:', enrichedPosters.length, 'sample typeRelationships:', JSON.stringify(enrichedPosters[0]?.typeRelationships?.slice(0, 2)));
             const enrichedMap = new Map(enrichedPosters.map(p => [p.name, p]));
             entities = entities.map(e =>
               e.entityType === 'Poster' && enrichedMap.has(e.name)
@@ -206,32 +256,9 @@ export function createEntityRoutes(entityService: EntityService, storageProvider
             logger.error('[entities route] Failed to enrich posters with types:', {
               message: err?.message,
               stack: err?.stack,
-              name: err?.name,
-              raw: String(err)
             });
           }
         }
-      }
-
-      // Apply posterType filter if requested (post-filter on enriched typeRelationships)
-      const parsedPosterType = posterType as string | undefined;
-      if (parsedPosterType && entities.length > 0) {
-        const knownTypes = ['concert', 'film', 'release', 'album', 'festival', 'comedy', 'theater'];
-        const requestedTypes = parsedPosterType === 'other'
-          ? null  // "other" means NOT in known types
-          : parsedPosterType.split(',').map(t => t.trim().toLowerCase());
-
-        entities = entities.filter(entity => {
-          const typeRels = (entity as any).typeRelationships || [];
-          if (requestedTypes) {
-            // Include if any type relationship matches requested types
-            return typeRels.some((tr: any) => requestedTypes.includes(tr.typeKey?.toLowerCase()));
-          } else {
-            // "other": include if no type relationships OR none match known types
-            if (typeRels.length === 0) return true;
-            return !typeRels.some((tr: any) => knownTypes.includes(tr.typeKey?.toLowerCase()));
-          }
-        });
       }
 
       // Apply term matching if requested
@@ -272,24 +299,16 @@ export function createEntityRoutes(entityService: EntityService, storageProvider
         entities = entities.map(e => projectFields(e, parsedFields));
       }
 
-      // Extract total from pagination metadata returned by storage provider
-      // If posterType filter was applied, use filtered count instead
-      const paginationTotal = parsedPosterType
-        ? entities.length
-        : ((result.data as any)?.pagination?.total ?? result.data?.entities.length ?? 0);
-
       res.json({
         data: {
           entities,
-          relations: result.data?.relations || []
+          relations: []
         },
         pagination: {
           limit: parsedLimit,
           offset: parsedOffset,
           total: paginationTotal
-        },
-        warnings: result.warnings,
-        suggestions: result.suggestions
+        }
       });
 
     } else {

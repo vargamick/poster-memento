@@ -5,6 +5,7 @@
  * Supports both the new relationship-based model and legacy poster_type property.
  */
 
+import neo4j from 'neo4j-driver';
 import type { StorageProvider } from '../../storage/StorageProvider.js';
 import type { Entity, KnowledgeGraph } from '../../KnowledgeGraphManager.js';
 import type { Relation } from '../../types/relation.js';
@@ -80,8 +81,8 @@ export class PosterTypeQueryService {
         typeKey,
         posterTypeName,
         minConfidence,
-        offset,
-        limit,
+        offset: neo4j.int(offset),
+        limit: neo4j.int(limit),
       };
 
       const results = await (this.storageProvider as any).runCypher(cypher, params);
@@ -122,7 +123,7 @@ export class PosterTypeQueryService {
         LIMIT $limit
       `;
 
-      const results = await (this.storageProvider as any).runCypher(cypher, { offset, limit });
+      const results = await (this.storageProvider as any).runCypher(cypher, { offset: neo4j.int(offset), limit: neo4j.int(limit) });
       return this.processMultiTypeResults(results);
     } catch (error) {
       logger.error('Error finding multi-type posters', error);
@@ -140,12 +141,16 @@ export class PosterTypeQueryService {
     }
 
     try {
-      // Neo4j stores all relationships as :RELATES_TO with relationType as a property
+      // Relationships may be connected to old entity versions, so match by name
+      // across all versions, then verify a current version exists
       const cypher = `
         MATCH (p:Entity {entityType: 'Poster'})-[r:RELATES_TO]->(t:Entity {entityType: 'PosterType'})
         WHERE r.relationType = 'HAS_TYPE'
-        RETURN CASE WHEN t.type_key IS NOT NULL THEN t.type_key ELSE replace(t.name, 'PosterType_', '') END as typeKey,
-               count(p) as count, avg(r.confidence) as avgConfidence
+        WITH DISTINCT p.name as posterName,
+             CASE WHEN t.type_key IS NOT NULL THEN t.type_key ELSE replace(t.name, 'PosterType_', '') END as typeKey
+        MATCH (current:Entity {name: posterName, entityType: 'Poster'})
+        WHERE current.validTo IS NULL
+        RETURN typeKey, count(DISTINCT posterName) as count
         ORDER BY count DESC
       `;
 
@@ -153,10 +158,142 @@ export class PosterTypeQueryService {
       return results.records?.map((record: any) => ({
         typeKey: record.get('typeKey') || 'unknown',
         count: record.get('count')?.toInt?.() || record.get('count') || 0,
-        avgConfidence: record.get('avgConfidence') || 0,
+        avgConfidence: 0,
       })) || [];
     } catch (error) {
       logger.error('Error getting type statistics', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get paginated poster names filtered by type, with total count.
+   * Used by the entities route for DB-level pre-filtering.
+   */
+  async getPosterNamesForType(
+    typeKeys: string[],
+    options: { limit: number; offset: number; sortBy?: string; sortOrder?: string }
+  ): Promise<{ names: string[]; total: number }> {
+    if (typeof (this.storageProvider as any).runCypher !== 'function') {
+      throw new Error('Cypher queries required. Neo4j storage provider required.');
+    }
+
+    const { limit, offset, sortBy = 'createdAt', sortOrder = 'desc' } = options;
+
+    // Map sort fields to Neo4j property names
+    const sortField = sortBy === 'name' ? 'p.name'
+      : sortBy === 'createdAt' ? 'p.createdAt'
+      : sortBy === 'updatedAt' ? 'p.updatedAt'
+      : 'p.createdAt';
+    const order = sortOrder === 'asc' ? 'ASC' : 'DESC';
+
+    try {
+      // Relationships may be connected to old entity versions, so match by name
+      // across all versions, then verify a current version exists
+      const cypher = `
+        MATCH (p:Entity {entityType: 'Poster'})-[r:RELATES_TO]->(t:Entity {entityType: 'PosterType'})
+        WHERE r.relationType = 'HAS_TYPE'
+          AND (t.type_key IN $typeKeys OR t.name IN $typeNames)
+        WITH DISTINCT p.name as posterName
+        MATCH (current:Entity {name: posterName, entityType: 'Poster'})
+        WHERE current.validTo IS NULL
+        RETURN current.name as name
+        ORDER BY ${sortField.replace('p.', 'current.')} ${order}
+        SKIP $offset
+        LIMIT $limit
+      `;
+
+      const countCypher = `
+        MATCH (p:Entity {entityType: 'Poster'})-[r:RELATES_TO]->(t:Entity {entityType: 'PosterType'})
+        WHERE r.relationType = 'HAS_TYPE'
+          AND (t.type_key IN $typeKeys OR t.name IN $typeNames)
+        WITH DISTINCT p.name as posterName
+        MATCH (current:Entity {name: posterName, entityType: 'Poster'})
+        WHERE current.validTo IS NULL
+        RETURN count(current) as total
+      `;
+
+      const typeNames = typeKeys.map(k => `PosterType_${k}`);
+      const params = { typeKeys, typeNames, offset: neo4j.int(offset), limit: neo4j.int(limit) };
+
+      const [results, countResult] = await Promise.all([
+        (this.storageProvider as any).runCypher(cypher, params),
+        (this.storageProvider as any).runCypher(countCypher, { typeKeys, typeNames }),
+      ]);
+
+      const names = results.records?.map((r: any) => r.get('name')) || [];
+      const total = countResult.records?.[0]?.get('total')?.toInt?.() || countResult.records?.[0]?.get('total') || 0;
+
+      return { names, total };
+    } catch (error) {
+      logger.error('Error getting poster names for type', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get paginated poster names that do NOT match any known type.
+   * Used for the "other" subtab.
+   */
+  async getPosterNamesForOtherType(
+    knownTypeKeys: string[],
+    options: { limit: number; offset: number; sortBy?: string; sortOrder?: string }
+  ): Promise<{ names: string[]; total: number }> {
+    if (typeof (this.storageProvider as any).runCypher !== 'function') {
+      throw new Error('Cypher queries required. Neo4j storage provider required.');
+    }
+
+    const { limit, offset, sortBy = 'createdAt', sortOrder = 'desc' } = options;
+
+    const sortField = sortBy === 'name' ? 'p.name'
+      : sortBy === 'createdAt' ? 'p.createdAt'
+      : sortBy === 'updatedAt' ? 'p.updatedAt'
+      : 'p.createdAt';
+    const order = sortOrder === 'asc' ? 'ASC' : 'DESC';
+
+    try {
+      // Find poster names that have at least one known type (across all entity versions)
+      // then return current posters NOT in that list
+      const cypher = `
+        MATCH (kp:Entity {entityType: 'Poster'})-[kr:RELATES_TO]->(kt:Entity {entityType: 'PosterType'})
+        WHERE kr.relationType = 'HAS_TYPE'
+        WITH DISTINCT kp.name as knownPosterName,
+             CASE WHEN kt.type_key IS NOT NULL THEN kt.type_key ELSE replace(kt.name, 'PosterType_', '') END as typeKey
+        WHERE typeKey IN $knownTypeKeys
+        WITH collect(DISTINCT knownPosterName) as knownPosterNames
+        MATCH (p:Entity {entityType: 'Poster'})
+        WHERE p.validTo IS NULL AND NOT p.name IN knownPosterNames
+        RETURN p.name as name
+        ORDER BY ${sortField} ${order}
+        SKIP $offset
+        LIMIT $limit
+      `;
+
+      const countCypher = `
+        MATCH (kp:Entity {entityType: 'Poster'})-[kr:RELATES_TO]->(kt:Entity {entityType: 'PosterType'})
+        WHERE kr.relationType = 'HAS_TYPE'
+        WITH DISTINCT kp.name as knownPosterName,
+             CASE WHEN kt.type_key IS NOT NULL THEN kt.type_key ELSE replace(kt.name, 'PosterType_', '') END as typeKey
+        WHERE typeKey IN $knownTypeKeys
+        WITH collect(DISTINCT knownPosterName) as knownPosterNames
+        MATCH (p:Entity {entityType: 'Poster'})
+        WHERE p.validTo IS NULL AND NOT p.name IN knownPosterNames
+        RETURN count(p) as total
+      `;
+
+      const params = { knownTypeKeys, offset: neo4j.int(offset), limit: neo4j.int(limit) };
+
+      const [results, countResult] = await Promise.all([
+        (this.storageProvider as any).runCypher(cypher, params),
+        (this.storageProvider as any).runCypher(countCypher, { knownTypeKeys }),
+      ]);
+
+      const names = results.records?.map((r: any) => r.get('name')) || [];
+      const total = countResult.records?.[0]?.get('total')?.toInt?.() || countResult.records?.[0]?.get('total') || 0;
+
+      return { names, total };
+    } catch (error) {
+      logger.error('Error getting poster names for other type', error);
       throw error;
     }
   }
@@ -239,7 +376,7 @@ export class PosterTypeQueryService {
 
       const results = await (this.storageProvider as any).runCypher(cypher, { posterNames });
 
-      // Build a map of poster name -> type relationships
+      // Build a map of poster name -> type relationships (deduplicated by typeKey)
       const typeMap = new Map<string, Array<{ typeKey: string; typeName: string; confidence: number; source: string; isPrimary: boolean }>>();
 
       if (results.records) {
@@ -249,8 +386,16 @@ export class PosterTypeQueryService {
             typeMap.set(posterName, []);
           }
           const metadata = this.parseMetadata(record.get('metadata'));
-          typeMap.get(posterName)!.push({
-            typeKey: record.get('typeKey') || 'unknown',
+          const typeKey = record.get('typeKey') || 'unknown';
+
+          // Deduplicate: skip if we already have this typeKey for this poster
+          const existing = typeMap.get(posterName)!;
+          if (existing.some(t => t.typeKey === typeKey)) {
+            continue;
+          }
+
+          existing.push({
+            typeKey,
             typeName: record.get('typeName') || '',
             confidence: record.get('confidence') ?? 0,
             source: metadata.source || 'unknown',
