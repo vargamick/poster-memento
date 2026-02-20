@@ -13,6 +13,14 @@ RUN apk add --no-cache python3 make g++
 
 # Copy package files
 COPY package*.json ./
+COPY .npmrc ./
+
+# GITHUB_TOKEN: required for installing @3dn/* packages from GitHub Packages registry
+# Pass via: docker build --build-arg GITHUB_TOKEN=$GITHUB_TOKEN .
+ARG GITHUB_TOKEN
+RUN if [ -n "$GITHUB_TOKEN" ]; then \
+      sed -i "s|\${GITHUB_TOKEN}|${GITHUB_TOKEN}|g" .npmrc; \
+    fi
 
 # Install all dependencies (including devDependencies for build)
 RUN npm ci
