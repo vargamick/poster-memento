@@ -4,6 +4,7 @@ import type { AdminService } from '../../services/AdminService.js';
 import type { S3Service } from '../../services/S3Service.js';
 import type { ProcessingService } from '../../services/ProcessingService.js';
 import type { KnowledgeGraphManager } from '../../KnowledgeGraphManager.js';
+import type { InstanceConfig } from '../../config/ConfigSchema.js';
 import { ensurePosterTypesSeeded, resetPosterTypeSeedCache } from '../../utils/ensurePosterTypes.js';
 import { logger } from '../../utils/logger.js';
 
@@ -17,9 +18,78 @@ export function createAdminRoutes(
   adminService: AdminService,
   s3Service: S3Service,
   processingService: ProcessingService,
-  knowledgeGraphManager?: KnowledgeGraphManager
+  knowledgeGraphManager?: KnowledgeGraphManager,
+  instanceConfig?: InstanceConfig
 ): Router {
   const router = Router();
+
+  // ============================================
+  // UI Config Endpoint (for admin UI genericization)
+  // ============================================
+
+  router.get('/ui-config', (_req, res) => {
+    const defaultTabs = [
+      { id: 'system', label: 'System', enabled: true },
+      { id: 'processing', label: 'Processing', enabled: true },
+      { id: 'settings', label: 'Settings', enabled: true },
+      { id: 'operations', label: 'Operations', enabled: true },
+    ];
+
+    const entityTypes = (instanceConfig?.entityTypes || []).map(e => e.name);
+
+    res.json({
+      data: {
+        instanceName: instanceConfig?.instanceName || 'memento',
+        title: instanceConfig?.adminUI?.title || instanceConfig?.instanceName || 'Memento Admin',
+        modelType: instanceConfig?.adminUI?.modelType || 'vision',
+        tabs: instanceConfig?.adminUI?.tabs || defaultTabs,
+        entityTypes,
+        features: instanceConfig?.adminUI?.features || {},
+        supportedModels: instanceConfig?.supportedModels || [],
+      },
+    });
+  });
+
+  // ============================================
+  // Model Config Endpoints (for vision model selection)
+  // ============================================
+
+  router.get('/model-config', (_req, res) => {
+    const supportedModels = instanceConfig?.supportedModels || [];
+    const currentModel = process.env.VISION_MODEL || supportedModels[0]?.id || 'minicpm-v';
+
+    res.json({
+      data: {
+        currentModel,
+        supportedModels,
+      },
+    });
+  });
+
+  router.put('/model-config', asyncHandler(async (req, res) => {
+    const { model } = req.body;
+    if (!model || typeof model !== 'string') {
+      throw new ValidationError('Missing required field: model');
+    }
+
+    const supportedModels = instanceConfig?.supportedModels || [];
+    const supported = supportedModels.find(m => m.id === model);
+    if (!supported && supportedModels.length > 0) {
+      throw new ValidationError(`Unsupported model: ${model}`);
+    }
+
+    process.env.VISION_MODEL = model;
+    logger.info(`Vision model changed to: ${model}`);
+
+    res.json({
+      data: {
+        model,
+        name: supported?.name || model,
+        provider: supported?.provider || 'unknown',
+      },
+      message: `Default vision model changed to ${supported?.name || model}`,
+    });
+  }));
 
   // ============================================
   // Debug Endpoints

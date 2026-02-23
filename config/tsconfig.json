@@ -26,6 +26,7 @@
   "exclude": [
     "../node_modules",
     "../dist",
+    "../src/admin/**",
     "../src/**/__vitest__/**",
     "../src/**/*.test.ts",
     "../src/**/*.spec.ts"

@@ -99,6 +99,40 @@ export interface MetadataExtractionConfig {
 }
 
 /**
+ * Admin UI tab configuration
+ */
+export interface AdminUITabConfig {
+  id: string;
+  label: string;
+  enabled: boolean;
+}
+
+/**
+ * Admin UI configuration
+ */
+export interface AdminUIConfig {
+  title: string;
+  tabs: AdminUITabConfig[];
+  modelType: 'chat' | 'vision';
+  features?: {
+    queryLogs?: boolean;
+    questionRunner?: boolean;
+    scraper?: boolean;
+  };
+}
+
+/**
+ * Supported model configuration for admin UI
+ */
+export interface SupportedModelConfig {
+  id: string;
+  name: string;
+  provider: string;
+  input: number;
+  output: number;
+}
+
+/**
  * Complete instance configuration
  */
 export interface InstanceConfig {
@@ -106,6 +140,11 @@ export interface InstanceConfig {
   description?: string;
   useCase: string;
   version?: string;
+
+  // Admin UI configuration
+  adminUI?: AdminUIConfig;
+  tablePrefix?: string;
+  supportedModels?: SupportedModelConfig[];
 
   // Entity and relationship definitions
   entityTypes: EntityTypeConfig[];

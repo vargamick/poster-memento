@@ -3,7 +3,9 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
+import type { InstanceConfig } from '../config/ConfigSchema.js';
 import { KnowledgeGraphManager } from '../KnowledgeGraphManager.js';
 import { initializeStorageProvider } from '../config/storage.js';
 import { setupServer } from '../server/setup.js';
@@ -81,6 +83,20 @@ const authenticateApiKey = (
 
   next();
 };
+
+// Load instance config
+let instanceConfig: InstanceConfig | undefined;
+try {
+  const configPath = process.env.CONFIG_PATH
+    || path.join(process.cwd(), 'instances', 'posters', 'config', 'instance-config.json');
+  if (existsSync(configPath)) {
+    const configData = readFileSync(configPath, 'utf-8');
+    instanceConfig = JSON.parse(configData) as InstanceConfig;
+    logger.info(`Loaded instance config: ${instanceConfig.instanceName}`);
+  }
+} catch (e: any) {
+  logger.warn(`Could not load instance config: ${e.message}`);
+}
 
 // Initialize storage and create KnowledgeGraphManager (same as stdio version)
 const storageProvider = initializeStorageProvider();
@@ -481,7 +497,7 @@ if (process.env.ADMIN_ENABLED !== 'false') {
     const adminService = createAdminServiceFromEnv();
     const s3Service = createS3ServiceFromEnv();
     const processingService = createProcessingServiceFromEnv();
-    apiV1.use('/admin', createAdminRoutes(adminService, s3Service, processingService, knowledgeGraphManager));
+    apiV1.use('/admin', createAdminRoutes(adminService, s3Service, processingService, knowledgeGraphManager, instanceConfig));
     logger.info('Admin routes enabled at /api/v1/admin');
   } catch (error: any) {
     logger.warn('Admin routes not initialized', { error: error.message });

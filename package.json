@@ -30,9 +30,13 @@
     "docker:clean": "cd docker && docker compose down -v",
     "ollama:pull": "docker exec poster-ollama ollama pull minicpm-v",
     "seed:poster-types": "tsx scripts/seed-poster-types.ts",
-    "migrate:poster-types": "tsx scripts/migrate-poster-types.ts"
+    "migrate:poster-types": "tsx scripts/migrate-poster-types.ts",
+    "admin:dev": "vite --config src/admin/vite.config.ts",
+    "admin:build": "vite build --config src/admin/vite.config.ts",
+    "admin:preview": "vite preview --config src/admin/vite.config.ts"
   },
   "dependencies": {
+    "@3dn/ai-provider-settings": "file:../../../ai-provider-settings",
     "@aws-sdk/client-s3": "^3.937.0",
     "@aws-sdk/lib-storage": "^3.937.0",
     "@aws-sdk/s3-request-presigner": "^3.982.0",
@@ -58,9 +62,18 @@
     "@types/express": "^4.17.25",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.19.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
     "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "tailwindcss": "^3.4.0",
     "tsx": "^4.19.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vite": "^6.0.0"
   },
   "engines": {
     "node": ">=20.0.0"
